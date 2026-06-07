@@ -120,6 +120,7 @@ test("cgptMergeSidebarApiSnapshotWithDom prefers visible sidebar titles over API
   const merged = cgptMergeSidebarApiSnapshotWithDom(snapshot, root);
   assert.equal(merged.conversations[0].title, "Visible Alpha Title");
   assert.equal(merged.conversations[0].isActive, true);
+  assert.equal(merged.conversations[0].domRef, undefined);
   assert.equal(merged.conversations[1].title, "API Gamma Title");
   cleanupWindowStub();
 });
@@ -173,6 +174,7 @@ test("cgptMergeSidebarApiSnapshotWithDom appends current project page conversati
     assert.equal(merged.conversations[0].projectId, "g-p-proj-1");
     assert.equal(merged.conversations[0].projectName, "PC管理");
     assert.equal(merged.conversations[0].isProjectItem, true);
+    assert.equal(merged.conversations[0].domRef, undefined);
   } finally {
     cleanupWindowStub();
   }
@@ -205,6 +207,23 @@ test("cgptCollectProjectPageConversationsFromRoot collects non-sidebar project c
   assert.equal(result[0].conversationId, "project-chat-2");
   assert.equal(result[0].projectId, "proj-1");
   assert.equal(result[0].projectName, "Project Alpha");
+});
+
+test("cgptBuildPlainSidebarSnapshot removes DOM references from conversations and projects", () => {
+  const { cgptBuildPlainSidebarSnapshot } = loadModule();
+  const domRef = { nodeType: 1 };
+  const snapshot = cgptBuildPlainSidebarSnapshot({
+    sidebarFound: true,
+    conversations: [
+      { id: "alpha", conversationId: "alpha", title: "Alpha", domRef, menuAnchorInfo: { conversationId: "alpha" } },
+    ],
+    projects: [
+      { id: "proj-alpha", name: "Project Alpha", domRef },
+    ],
+  });
+  assert.equal(snapshot.conversations[0].domRef, undefined);
+  assert.equal(snapshot.conversations[0].menuAnchorInfo, undefined);
+  assert.equal(snapshot.projects[0].domRef, undefined);
 });
 
 test("cgptHasProjectConversationCoverage matches project ids and slug-like raw ids", () => {

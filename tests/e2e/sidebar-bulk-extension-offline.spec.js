@@ -31,6 +31,60 @@ async function createSidebarBulkPage(context) {
   return page;
 }
 
+async function createSidebarBulkApiSnapshotPage(context) {
+  const fixtureHtml = await loadFixtureHtml(fixturePath);
+  const page = await context.newPage();
+  await page.route("https://chatgpt.com/**", async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (request.resourceType() === "document") {
+      await route.fulfill({
+        status: 200,
+        contentType: "text/html; charset=utf-8",
+        body: fixtureHtml,
+      });
+      return;
+    }
+    if (url.pathname === "/api/auth/session" || url.pathname === "/backend-api/accounts/check" || url.pathname === "/backend-api/me") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json; charset=utf-8",
+        body: JSON.stringify({ user: { id: "offline-user" } }),
+      });
+      return;
+    }
+    if (url.pathname === "/backend-api/gizmos/snorlax/sidebar" || url.pathname === "/backend-api/projects") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json; charset=utf-8",
+        body: JSON.stringify({
+          items: [
+            { id: "proj-alpha", name: "Project Alpha" },
+          ],
+        }),
+      });
+      return;
+    }
+    if (url.pathname === "/backend-api/conversations") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json; charset=utf-8",
+        body: JSON.stringify({
+          items: [
+            { id: "api-only", title: "API only plain chat" },
+            { id: "alpha", title: "API Alpha planning" },
+          ],
+        }),
+      });
+      return;
+    }
+    await route.fulfill({ status: 204, contentType: "text/plain; charset=utf-8", body: "" });
+  });
+  await page.goto("https://chatgpt.com/c/sidebar-bulk-api-snapshot", { waitUntil: "domcontentloaded" });
+  await expect(page.locator("#cgpt-code-helper-panel")).toBeVisible({ timeout: 10_000 });
+  return page;
+}
+
 test.describe("sidebar bulk feature", () => {
   let sharedContext = null;
 
@@ -44,6 +98,19 @@ test.describe("sidebar bulk feature", () => {
     if (sharedContext) {
       await sharedContext.close().catch(() => {});
       sharedContext = null;
+    }
+  });
+
+  test("bulk list renders API snapshot conversations without DOM references", async () => {
+    const page = await createSidebarBulkApiSnapshotPage(sharedContext);
+    try {
+      await page.getByRole("button", { name: "Bulk Chats" }).click();
+      const panel = page.locator("#cgpt-helper-sidebar-bulk-panel");
+      await expect(panel).toBeVisible();
+      await expect(page.locator("#cgpt-helper-sidebar-bulk-list")).toContainText("API only plain chat");
+      await expect(page.locator("#cgpt-helper-sidebar-bulk-list")).toContainText("api-only");
+    } finally {
+      await page.close().catch(() => {});
     }
   });
 

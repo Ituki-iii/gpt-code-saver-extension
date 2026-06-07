@@ -141,7 +141,7 @@ function cgptCreateProjectMoveDebugEntry(stage, details = {}) {
   const refreshedConversation = details.refreshedConversation || null;
   let row = null;
   try {
-    row = cgptFindConversationRowElement(conversation) || conversation.domRef || null;
+    row = cgptFindConversationRowElement(conversation) || null;
   } catch (_error) {
     row = null;
   }
@@ -294,21 +294,24 @@ async function cgptVerifyConversationProjectMove(conversation = {}, projectTarge
 }
 
 function cgptFindConversationRowElement(conversation) {
-  const key = conversation && (conversation.conversationId || conversation.id);
+  const key = cgptGetSidebarActionConversationId(conversation);
   if (!key || typeof document.querySelectorAll !== "function") return null;
+  if (typeof cgptResolveSidebarConversationDomRef === "function") {
+    return cgptResolveSidebarConversationDomRef(key, document);
+  }
   const anchors = Array.from(document.querySelectorAll("a[href*='/c/']"));
   return (
     anchors
       .find((anchor) => {
         const href = anchor.getAttribute("href") || "";
-        return href.includes(`/c/${key}`);
+        return href.includes(`/c/${key}`) || anchor.dataset.cgptConversationId === key;
       })
       ?.closest("[data-cgpt-conversation-row='1'], li, [role='listitem'], div") || null
   );
 }
 
 function cgptResolveConversationActionButton(conversation) {
-  const row = cgptFindConversationRowElement(conversation) || conversation.domRef || null;
+  const row = cgptFindConversationRowElement(conversation) || null;
   if (!row || typeof row.querySelector !== "function") return null;
   return (
     row.querySelector("[data-cgpt-conversation-menu='1']") ||
@@ -805,7 +808,130 @@ async function cgptOpenSidebarProjectCreationUi() {
   return true;
 }
 
-async function cgptRunSingleSidebarAction(conversation, action, projectTarget) {
+function cgptGetSidebarActionConversationId(conversation = {}) {
+  return String((conversation && (conversation.conversationId || conversation.id)) || "").trim();
+}
+
+function cgptBuildSidebarActionApiRequests(conversation, action, projectTarget = {}) {
+  const conversationId = cgptGetSidebarActionConversationId(conversation);
+  if (!conversationId) {
+    return [];
+  }
+  const encodedId = encodeURIComponent(conversationId);
+  if (action === "archive") {
+    return [
+      {
+        path: `/backend-api/conversation/${encodedId}`,
+        method: "PATCH",
+        body: { is_archived: true },
+      },
+      {
+        path: `/backend-api/conversation/${encodedId}`,
+        method: "PATCH",
+        body: { is_visible: false },
+      },
+    ];
+  }
+  if (action === "delete") {
+    return [
+      {
+        path: `/backend-api/conversation/${encodedId}`,
+        method: "PATCH",
+        body: { is_visible: false },
+      },
+      {
+        path: `/backend-api/conversation/${encodedId}`,
+        method: "DELETE",
+        body: null,
+      },
+    ];
+  }
+  if (action === "rename") {
+    const nextTitle = String((projectTarget && projectTarget.nextTitle) || "").trim();
+    if (!nextTitle) {
+      return [];
+    }
+    return [
+      {
+        path: `/backend-api/conversation/${encodedId}`,
+        method: "PATCH",
+        body: { title: nextTitle },
+      },
+    ];
+  }
+  if (action === "project") {
+    const projectId = String((projectTarget && projectTarget.projectId) || "").trim();
+    if (!projectId) {
+      return [];
+    }
+    return [
+      {
+        path: `/backend-api/conversation/${encodedId}`,
+        method: "PATCH",
+        body: { project_id: projectId },
+      },
+      {
+        path: `/backend-api/conversation/${encodedId}/project`,
+        method: "POST",
+        body: { project_id: projectId },
+      },
+    ];
+  }
+  return [];
+}
+
+async function cgptFetchSidebarActionApiJson(request) {
+  if (!request || !request.path || typeof fetch !== "function") {
+    throw new Error("api_action_unavailable");
+  }
+  const url =
+    typeof cgptResolveSidebarApiAbsoluteUrl === "function"
+      ? cgptResolveSidebarApiAbsoluteUrl(request.path)
+      : request.path;
+  const response = await fetch(url, {
+    method: request.method || "POST",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    body: request.body === null ? undefined : JSON.stringify(request.body || {}),
+  });
+  const contentType = String(response.headers && response.headers.get ? response.headers.get("content-type") || "" : "");
+  let json = null;
+  try {
+    json = contentType.includes("application/json") ? await response.json() : null;
+  } catch (_error) {
+  }
+  if (response.ok && !contentType.includes("application/json") && response.status !== 204) {
+    throw new Error("api_action_non_json_response");
+  }
+  if (!response.ok) {
+    const message = json && (json.message || json.detail || json.error);
+    const error = new Error(message ? String(message) : "api_action_failed");
+    error.status = response.status;
+    throw error;
+  }
+  return { ok: true, status: response.status, json };
+}
+
+async function cgptRunSingleSidebarApiAction(conversation, action, projectTarget) {
+  const requests = cgptBuildSidebarActionApiRequests(conversation, action, projectTarget);
+  if (!requests.length) {
+    throw new Error("api_action_unavailable");
+  }
+  let lastError = null;
+  for (const request of requests) {
+    try {
+      return await cgptFetchSidebarActionApiJson(request);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("api_action_failed");
+}
+
+async function cgptRunSingleSidebarGuiFallbackAction(conversation, action, projectTarget) {
   const menuButton = await cgptOpenConversationMenu(conversation);
   if (action === "archive") {
     await cgptClickMenuItemByText(CGPT_SIDEBAR_ACTION_LABELS.archive);
@@ -860,6 +986,30 @@ async function cgptRunSingleSidebarAction(conversation, action, projectTarget) {
     return;
   }
   throw new Error("failed_action_not_found");
+}
+
+async function cgptRunSingleSidebarAction(conversation, action, projectTarget) {
+  try {
+    await cgptRunSingleSidebarApiAction(conversation, action, projectTarget);
+    if (typeof cgptWaitForSidebarRefresh === "function") {
+      await cgptWaitForSidebarRefresh();
+    }
+    return;
+  } catch (_apiError) {
+    return cgptRunSingleSidebarGuiFallbackAction(conversation, action, projectTarget);
+  }
+}
+
+async function cgptRenameSidebarConversation(conversation, nextTitle) {
+  try {
+    await cgptRunSingleSidebarApiAction(conversation, "rename", { nextTitle });
+    if (typeof cgptWaitForSidebarRefresh === "function") {
+      await cgptWaitForSidebarRefresh();
+    }
+    return;
+  } catch (_apiError) {
+    return cgptRenameSidebarConversationViaUi(conversation, nextTitle);
+  }
 }
 
 async function cgptRenameSidebarConversationViaUi(conversation, nextTitle) {
@@ -982,7 +1132,7 @@ async function cgptRunSidebarBulkTitleUpdate({ conversationIds, prefix, suffix }
       continue;
     }
     try {
-      await cgptRenameSidebarConversationViaUi(conversation, titleUpdate.nextTitle);
+      await cgptRenameSidebarConversation(conversation, titleUpdate.nextTitle);
       results.push({
         ok: true,
         status: "success",
@@ -1026,10 +1176,14 @@ if (typeof module !== "undefined" && module.exports) {
     cgptCaptureProjectMoveDebugSnapshot,
     cgptClearSidebarProjectMoveDebugLog,
     cgptDidConversationReachProjectTarget,
+    cgptBuildSidebarActionApiRequests,
     cgptFindProjectTargetOption,
     cgptGetSidebarProjectMoveDebugLog,
     cgptOpenSidebarProjectCreationUi,
+    cgptRenameSidebarConversation,
     cgptRenameSidebarConversationViaUi,
+    cgptRunSingleSidebarApiAction,
+    cgptRunSingleSidebarGuiFallbackAction,
     cgptRunSidebarBulkAction,
     cgptRunSidebarBulkTitleUpdate,
   };
