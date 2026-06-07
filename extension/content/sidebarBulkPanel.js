@@ -34,6 +34,155 @@ function cgptCloseSidebarBulkPanel() {
   }
 }
 
+function cgptGetSidebarBulkDebugSnapshot(fallback = {}) {
+  return typeof cgptGetSidebarConversationSnapshot === "function"
+    ? cgptGetSidebarConversationSnapshot()
+    : {
+        sidebarFound: false,
+        conversations: [],
+        projects: [],
+        diagnostics: null,
+        ...fallback,
+      };
+}
+
+function cgptBuildSidebarBulkDebugSnapshotSummary(snapshot = {}) {
+  return {
+    sidebarFound: Boolean(snapshot.sidebarFound),
+    conversationCount: Array.isArray(snapshot.conversations) ? snapshot.conversations.length : 0,
+    projectCount: Array.isArray(snapshot.projects) ? snapshot.projects.length : 0,
+    source: snapshot.source || "",
+    debugBuild: snapshot.debugBuild || "",
+    updatedAt: snapshot.updatedAt || 0,
+  };
+}
+
+function cgptSerializeSidebarBulkDebugProjects(projects = []) {
+  return (Array.isArray(projects) ? projects : []).map((project) => ({
+    id: project && project.id ? String(project.id) : "",
+    name: project && project.name ? String(project.name) : "",
+    isCurrent: Boolean(project && project.isCurrent),
+    raw: project && project.raw ? project.raw : null,
+  }));
+}
+
+function cgptSerializeSidebarBulkDebugConversations(conversations = []) {
+  return (Array.isArray(conversations) ? conversations : []).map((conversation) => ({
+    id: conversation && conversation.id ? String(conversation.id) : "",
+    title: conversation && conversation.title ? String(conversation.title) : "",
+    projectId: conversation && conversation.projectId ? String(conversation.projectId) : "",
+    projectName: conversation && conversation.projectName ? String(conversation.projectName) : "",
+    isProjectItem: Boolean(conversation && conversation.isProjectItem),
+  }));
+}
+
+async function cgptExportSidebarBulkDebugPayload(payload, labels = {}) {
+  const copied =
+    typeof cgptCopySidebarApiDebugJson === "function" &&
+    await cgptCopySidebarApiDebugJson(payload, { allowTextareaFallback: true });
+  if (copied) {
+    showToast(labels.copied || "Debug copied to clipboard.", "success");
+    return;
+  }
+  const exported =
+    typeof cgptDownloadSidebarApiDebugJson === "function" &&
+    await cgptDownloadSidebarApiDebugJson(payload);
+  showToast(
+    exported ? (labels.downloaded || "Debug downloaded.") : (labels.failed || "Debug export failed."),
+    exported ? "success" : "error"
+  );
+}
+
+async function cgptExportSidebarApiDebug() {
+  const snapshot = cgptGetSidebarBulkDebugSnapshot();
+  const diagnostics =
+    snapshot.diagnostics ||
+    (typeof cgptGetSidebarApiDiagnostics === "function" ? cgptGetSidebarApiDiagnostics() : null);
+  const payload = diagnostics || {
+    timestamp: new Date().toISOString(),
+    phase: "snapshot",
+    authMode: "unknown",
+    status: 0,
+    endpoint: "",
+    message: snapshot.sidebarFound
+      ? ((Array.isArray(snapshot.projects) && snapshot.projects.length > 0)
+          ? "snapshot_available_without_diagnostics"
+          : "api_projects_missing_from_snapshot")
+      : "no_api_diagnostics_yet",
+    endpointTried: [],
+    snapshotSummary: cgptBuildSidebarBulkDebugSnapshotSummary(snapshot),
+    projectApiSweep: snapshot.projectApiSweep || null,
+    projectIframeSweep: snapshot.projectIframeSweep || null,
+    projects: cgptSerializeSidebarBulkDebugProjects(snapshot.projects),
+    conversations: cgptSerializeSidebarBulkDebugConversations(snapshot.conversations),
+  };
+  await cgptExportSidebarBulkDebugPayload(payload, {
+    copied: "API debug copied to clipboard.",
+    downloaded: "API debug downloaded.",
+    failed: "API debug export failed.",
+  });
+}
+
+async function cgptExportSidebarMoveDebug() {
+  const snapshot = cgptGetSidebarBulkDebugSnapshot();
+  const state = typeof cgptGetSidebarBulkState === "function" ? cgptGetSidebarBulkState() : null;
+  const payload = {
+    timestamp: new Date().toISOString(),
+    phase: "project_move_debug",
+    snapshotSummary: cgptBuildSidebarBulkDebugSnapshotSummary(snapshot),
+    lastResult: state && state.lastResult ? state.lastResult : null,
+    projectMoveDebugLog:
+      typeof cgptGetSidebarProjectMoveDebugLog === "function"
+        ? cgptGetSidebarProjectMoveDebugLog()
+        : [],
+    projects: cgptSerializeSidebarBulkDebugProjects(snapshot.projects),
+    conversations: cgptSerializeSidebarBulkDebugConversations(snapshot.conversations),
+  };
+  await cgptExportSidebarBulkDebugPayload(payload, {
+    copied: "Move debug copied to clipboard.",
+    downloaded: "Move debug downloaded.",
+    failed: "Move debug export failed.",
+  });
+}
+
+function cgptRegisterSidebarBulkDebugMessageHandler() {
+  if (
+    typeof chrome === "undefined" ||
+    !chrome.runtime ||
+    !chrome.runtime.onMessage ||
+    window.__cgptSidebarBulkDebugMessageHandlerRegistered
+  ) {
+    return;
+  }
+  window.__cgptSidebarBulkDebugMessageHandlerRegistered = true;
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (!message || !message.type) {
+      return false;
+    }
+    if (message.type === "cgptExportSidebarApiDebug") {
+      cgptExportSidebarApiDebug()
+        .then(() => sendResponse({ ok: true }))
+        .catch((error) => sendResponse({
+          ok: false,
+          error: String((error && error.message) || "api_debug_export_failed"),
+        }));
+      return true;
+    }
+    if (message.type === "cgptExportSidebarMoveDebug") {
+      cgptExportSidebarMoveDebug()
+        .then(() => sendResponse({ ok: true }))
+        .catch((error) => sendResponse({
+          ok: false,
+          error: String((error && error.message) || "move_debug_export_failed"),
+        }));
+      return true;
+    }
+    return false;
+  });
+}
+
+cgptRegisterSidebarBulkDebugMessageHandler();
+
 function cgptCreateSidebarBulkPanel() {
   const panel = document.createElement("div");
   panel.id = "cgpt-helper-sidebar-bulk-panel";
@@ -48,8 +197,8 @@ function cgptCreateSidebarBulkPanel() {
   panel.style.display = "flex";
   panel.style.flexDirection = "column";
   panel.style.gap = "8px";
-  panel.style.width = "min(540px, calc(100vw - 48px))";
-  panel.style.maxWidth = "540px";
+  panel.style.width = "min(760px, calc(100vw - 48px))";
+  panel.style.maxWidth = "760px";
   panel.style.height = "min(620px, calc(100vh - 112px))";
   panel.style.maxHeight = "calc(100vh - 112px)";
   panel.style.overflow = "hidden";
@@ -82,132 +231,6 @@ function cgptCreateSidebarBulkPanel() {
     cgptRenderSidebarBulkPanel();
   });
   header.appendChild(refreshButton);
-
-  const debugButton = createPanelButton("API Debug", "secondary");
-  debugButton.id = "cgpt-helper-sidebar-bulk-api-debug";
-  debugButton.addEventListener("click", async () => {
-    const snapshot =
-      typeof cgptGetSidebarConversationSnapshot === "function"
-        ? cgptGetSidebarConversationSnapshot()
-        : { sidebarFound: false, conversations: [], projects: [], diagnostics: null };
-    const diagnostics =
-      snapshot.diagnostics ||
-      (typeof cgptGetSidebarApiDiagnostics === "function" ? cgptGetSidebarApiDiagnostics() : null);
-    const payload = diagnostics || {
-      timestamp: new Date().toISOString(),
-      phase: "snapshot",
-      authMode: "unknown",
-      status: 0,
-      endpoint: "",
-      message: snapshot.sidebarFound
-        ? ((Array.isArray(snapshot.projects) && snapshot.projects.length > 0)
-            ? "snapshot_available_without_diagnostics"
-            : "api_projects_missing_from_snapshot")
-        : "no_api_diagnostics_yet",
-      endpointTried: [],
-      snapshotSummary: {
-        sidebarFound: snapshot.sidebarFound,
-        conversationCount: Array.isArray(snapshot.conversations) ? snapshot.conversations.length : 0,
-        projectCount: Array.isArray(snapshot.projects) ? snapshot.projects.length : 0,
-        source: snapshot.source || "",
-        debugBuild: snapshot.debugBuild || "",
-        updatedAt: snapshot.updatedAt || 0,
-      },
-      projectApiSweep: snapshot.projectApiSweep || null,
-      projectIframeSweep: snapshot.projectIframeSweep || null,
-      projects: Array.isArray(snapshot.projects)
-        ? snapshot.projects.map((project) => ({
-            id: project && project.id ? String(project.id) : "",
-            name: project && project.name ? String(project.name) : "",
-            isCurrent: Boolean(project && project.isCurrent),
-            raw: project && project.raw ? project.raw : null,
-          }))
-        : [],
-      conversations: Array.isArray(snapshot.conversations)
-        ? snapshot.conversations.map((conversation) => ({
-            id: conversation && conversation.id ? String(conversation.id) : "",
-            title: conversation && conversation.title ? String(conversation.title) : "",
-            projectId: conversation && conversation.projectId ? String(conversation.projectId) : "",
-            projectName: conversation && conversation.projectName ? String(conversation.projectName) : "",
-            isProjectItem: Boolean(conversation && conversation.isProjectItem),
-          }))
-        : [],
-    };
-    const copied =
-      typeof cgptCopySidebarApiDebugJson === "function" &&
-      await cgptCopySidebarApiDebugJson(payload, { allowTextareaFallback: true });
-    if (copied) {
-      showToast("API debug copied to clipboard.", "success");
-      return;
-    }
-    const exported =
-      typeof cgptDownloadSidebarApiDebugJson === "function" &&
-      await cgptDownloadSidebarApiDebugJson(payload);
-    showToast(
-      exported ? "API debug downloaded." : "API debug export failed.",
-      exported ? "success" : "error"
-    );
-  });
-  header.appendChild(debugButton);
-
-  const moveDebugButton = createPanelButton("Move Debug", "secondary");
-  moveDebugButton.id = "cgpt-helper-sidebar-bulk-move-debug";
-  moveDebugButton.addEventListener("click", async () => {
-    const snapshot =
-      typeof cgptGetSidebarConversationSnapshot === "function"
-        ? cgptGetSidebarConversationSnapshot()
-        : { sidebarFound: false, conversations: [], projects: [] };
-    const state = typeof cgptGetSidebarBulkState === "function" ? cgptGetSidebarBulkState() : null;
-    const payload = {
-      timestamp: new Date().toISOString(),
-      phase: "project_move_debug",
-      snapshotSummary: {
-        sidebarFound: Boolean(snapshot.sidebarFound),
-        conversationCount: Array.isArray(snapshot.conversations) ? snapshot.conversations.length : 0,
-        projectCount: Array.isArray(snapshot.projects) ? snapshot.projects.length : 0,
-        source: snapshot.source || "",
-        debugBuild: snapshot.debugBuild || "",
-        updatedAt: snapshot.updatedAt || 0,
-      },
-      lastResult: state && state.lastResult ? state.lastResult : null,
-      projectMoveDebugLog:
-        typeof cgptGetSidebarProjectMoveDebugLog === "function"
-          ? cgptGetSidebarProjectMoveDebugLog()
-          : [],
-      projects: Array.isArray(snapshot.projects)
-        ? snapshot.projects.map((project) => ({
-            id: project && project.id ? String(project.id) : "",
-            name: project && project.name ? String(project.name) : "",
-            isCurrent: Boolean(project && project.isCurrent),
-            raw: project && project.raw ? project.raw : null,
-          }))
-        : [],
-      conversations: Array.isArray(snapshot.conversations)
-        ? snapshot.conversations.map((conversation) => ({
-            id: conversation && conversation.id ? String(conversation.id) : "",
-            title: conversation && conversation.title ? String(conversation.title) : "",
-            projectId: conversation && conversation.projectId ? String(conversation.projectId) : "",
-            projectName: conversation && conversation.projectName ? String(conversation.projectName) : "",
-            isProjectItem: Boolean(conversation && conversation.isProjectItem),
-          }))
-        : [],
-    };
-    const copied =
-      typeof cgptCopySidebarApiDebugJson === "function" &&
-      await cgptCopySidebarApiDebugJson(payload, { allowTextareaFallback: true });
-    if (copied) {
-      showToast("Move debug copied to clipboard.", "success");
-      return;
-    }
-    const exported =
-      typeof cgptDownloadSidebarApiDebugJson === "function" &&
-      await cgptDownloadSidebarApiDebugJson(payload);
-    showToast(
-      exported ? "Move debug downloaded." : "Move debug export failed.",
-      exported ? "success" : "error"
-    );
-  });
-  header.appendChild(moveDebugButton);
 
   const hideButton = createPanelButton("Hide", "ghost");
   hideButton.addEventListener("click", () => cgptCloseSidebarBulkPanel());
@@ -283,6 +306,25 @@ function cgptCreateSidebarBulkPanel() {
   filterRow.style.display = "flex";
   filterRow.style.alignItems = "center";
   filterRow.style.gap = "6px";
+
+  const projectFilter = document.createElement("select");
+  projectFilter.id = "cgpt-helper-sidebar-bulk-project-filter";
+  projectFilter.title = "Filter by project";
+  projectFilter.setAttribute("aria-label", "Filter by project");
+  projectFilter.style.flex = "0 0 138px";
+  projectFilter.style.minWidth = "0";
+  projectFilter.style.minHeight = "30px";
+  projectFilter.style.padding = "0 8px";
+  projectFilter.style.borderRadius = "8px";
+  if (typeof cgptApplyPanelInputStyle === "function") {
+    cgptApplyPanelInputStyle(projectFilter);
+  }
+  projectFilter.addEventListener("change", (event) => {
+    if (typeof cgptSetSidebarBulkProjectFilter === "function") {
+      cgptSetSidebarBulkProjectFilter(event.target.value || "");
+    }
+  });
+  filterRow.appendChild(projectFilter);
 
   const input = document.createElement("input");
   input.id = "cgpt-helper-sidebar-bulk-search";
@@ -447,9 +489,70 @@ async function cgptHandleSidebarConversationRename(conversation) {
   }
 }
 
+async function cgptHandleSidebarConversationShareLink(conversation) {
+  try {
+    const conversationId = String((conversation && (conversation.conversationId || conversation.id)) || "").trim();
+    if (!conversationId) {
+      throw new Error("conversation_id_missing");
+    }
+    if (typeof cgptSetSidebarBulkRunningAction === "function") {
+      cgptSetSidebarBulkRunningAction("share");
+    }
+    if (typeof createConversationShareLink !== "function") {
+      throw new Error("share_action_not_found");
+    }
+    const result = await createConversationShareLink(conversationId, conversation.currentNodeId || "");
+    const shareUrl = String((result && result.shareUrl) || "").trim();
+    if (!shareUrl) {
+      throw new Error("share_url_missing");
+    }
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      await navigator.clipboard.writeText(shareUrl);
+      showToast("Share link copied.", "success");
+    } else {
+      showToast(`Share link created: ${shareUrl}`, "success");
+    }
+  } catch (error) {
+    showToast(`Share link failed: ${error && error.message ? error.message : "unknown"}`, "error");
+  } finally {
+    if (typeof cgptSetSidebarBulkRunningAction === "function") {
+      cgptSetSidebarBulkRunningAction("");
+    }
+    cgptRenderSidebarBulkPanel();
+  }
+}
+
+async function cgptHandleSidebarConversationArchive(conversation) {
+  try {
+    const conversationId = String((conversation && (conversation.conversationId || conversation.id)) || "").trim();
+    if (!conversationId) {
+      throw new Error("conversation_id_missing");
+    }
+    if (typeof cgptSetSidebarBulkRunningAction === "function") {
+      cgptSetSidebarBulkRunningAction("archive");
+    }
+    if (typeof archiveConversation !== "function") {
+      throw new Error("archive_action_not_found");
+    }
+    await archiveConversation(conversationId);
+    showToast("Chat archived.", "success");
+  } catch (error) {
+    showToast(`Archive failed: ${error && error.message ? error.message : "unknown"}`, "error");
+  } finally {
+    if (typeof cgptSetSidebarBulkRunningAction === "function") {
+      cgptSetSidebarBulkRunningAction("");
+    }
+    cgptRenderSidebarBulkPanel();
+  }
+}
+
 function cgptSyncSidebarBulkSelectionSummary(panel, snapshot, state) {
   if (!panel) return;
-  const visibleConversations = cgptFilterSidebarConversations(snapshot.conversations, state.query);
+  const visibleConversations = cgptFilterSidebarConversations(
+    snapshot.conversations,
+    state.query,
+    state.projectFilter
+  );
   const selectionSummary = cgptSummarizeSidebarSelection(
     snapshot.conversations,
     state.selectedConversationIds
@@ -468,6 +571,53 @@ function cgptSyncSidebarBulkSelectionSummary(panel, snapshot, state) {
       ? `Visible ${selectionSummary.totalCount} / Filtered ${visibleConversations.length} / Selected ${selectionSummary.selectedCount} / Project ${selectionSummary.projectCount}`
       : `Internal API unavailable${diagnostics ? ` / ${diagnostics.phase} / ${diagnostics.message}` : ""}`;
   }
+}
+
+function cgptCollectSidebarBulkProjectFilterOptions(snapshot = {}) {
+  const optionMap = new Map();
+  (Array.isArray(snapshot.projects) ? snapshot.projects : []).forEach((project) => {
+    const id = String((project && project.id) || "").trim();
+    const name = String((project && project.name) || "").trim();
+    if (!id && !name) return;
+    optionMap.set(id || name, name || id);
+  });
+  (Array.isArray(snapshot.conversations) ? snapshot.conversations : []).forEach((conversation) => {
+    const projectId = String((conversation && conversation.projectId) || "").trim();
+    const projectName = String((conversation && conversation.projectName) || "").trim();
+    if (!projectId && !projectName) return;
+    optionMap.set(projectId || projectName, projectName || projectId);
+  });
+  return Array.from(optionMap.entries())
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function cgptRenderSidebarBulkProjectFilter(panel, snapshot, state) {
+  if (!panel) return;
+  const select = panel.querySelector("#cgpt-helper-sidebar-bulk-project-filter");
+  if (!select) return;
+  const options = [
+    { value: "", label: "All projects" },
+    { value: "__none__", label: "No project" },
+    ...cgptCollectSidebarBulkProjectFilterOptions(snapshot),
+  ];
+  const optionSignature = options.map((option) => `${option.value}:${option.label}`).join("|");
+  if (select.dataset.cgptOptionSignature !== optionSignature) {
+    select.replaceChildren();
+    options.forEach((option) => {
+      const node = document.createElement("option");
+      node.value = option.value;
+      node.textContent = option.label;
+      select.appendChild(node);
+    });
+    select.dataset.cgptOptionSignature = optionSignature;
+  }
+  const values = new Set(options.map((option) => option.value));
+  const nextValue = values.has(state.projectFilter) ? state.projectFilter : "";
+  if (select.value !== nextValue) {
+    select.value = nextValue;
+  }
+  select.disabled = state.runningAction !== "" || !snapshot.sidebarFound;
 }
 
 function cgptSyncSidebarBulkCheckboxes(panel, state) {
@@ -499,6 +649,50 @@ function cgptToggleSidebarBulkConversationSelection(selectionKey, checkbox) {
   if (checkbox) {
     checkbox.checked = nextChecked;
   }
+}
+
+function cgptCreateSidebarBulkRowIconButton({ icon, title, ariaLabel, disabled, onClick, top = "" }) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = icon;
+  button.title = title;
+  button.setAttribute("aria-label", ariaLabel);
+  button.style.flexShrink = "0";
+  button.style.display = "inline-flex";
+  button.style.alignItems = "center";
+  button.style.justifyContent = "center";
+  button.style.margin = "0";
+  button.style.padding = "0";
+  button.style.border = "none";
+  button.style.background = "transparent";
+  button.style.boxShadow = "none";
+  button.style.borderRadius = "0";
+  button.style.minWidth = "auto";
+  button.style.width = "auto";
+  button.style.minHeight = "auto";
+  button.style.lineHeight = "1";
+  button.style.fontSize = "12px";
+  button.style.cursor = disabled ? "default" : "pointer";
+  button.style.transform = "none";
+  button.style.verticalAlign = "baseline";
+  if (top) {
+    button.style.position = "relative";
+    button.style.top = top;
+  }
+  if (typeof cgptApplyPanelTextTone === "function") {
+    cgptApplyPanelTextTone(button, "muted");
+  }
+  button.disabled = Boolean(disabled);
+  button.addEventListener("pointerdown", (event) => {
+    event.stopPropagation();
+  });
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!button.disabled && typeof onClick === "function") {
+      onClick(event);
+    }
+  });
+  return button;
 }
 
 function cgptResolveSidebarBulkSelectedProject() {
@@ -889,10 +1083,10 @@ function cgptRenderSidebarBulkList(panel, visibleConversations, state) {
   visibleConversations.forEach((conversation) => {
     const row = document.createElement("div");
     row.style.display = "grid";
-    row.style.gridTemplateColumns = "18px minmax(0, 1fr) 150px";
-    row.style.gap = "8px";
+    row.style.gridTemplateColumns = "18px minmax(0, 1fr) 240px";
+    row.style.gap = "6px";
     row.style.alignItems = "center";
-    row.style.padding = "6px 0";
+    row.style.padding = "3px 0";
     row.style.minWidth = "0";
     row.style.cursor = state.runningAction !== "" ? "default" : "pointer";
     row.style.borderBottom = "1px solid rgba(203, 213, 225, 0.55)";
@@ -915,82 +1109,87 @@ function cgptRenderSidebarBulkList(panel, visibleConversations, state) {
     const content = document.createElement("div");
     content.style.display = "flex";
     content.style.flexDirection = "column";
-    content.style.gap = "2px";
+    content.style.gap = "0";
     content.style.minWidth = "0";
     content.style.alignSelf = "stretch";
 
     const titleRow = document.createElement("div");
     titleRow.style.display = "grid";
-    titleRow.style.gridTemplateColumns = "minmax(0, 1fr) auto";
-    titleRow.style.alignItems = "baseline";
+    titleRow.style.gridTemplateColumns = "120px minmax(0, 1fr)";
+    titleRow.style.alignItems = "center";
     titleRow.style.gap = "4px";
     titleRow.style.minWidth = "0";
     titleRow.style.width = "100%";
 
+    const projectLabel = conversation.projectName || "-";
+    const projectPrefix = document.createElement("div");
+    projectPrefix.textContent = projectLabel;
+    projectPrefix.title = conversation.projectName ? `Project: ${conversation.projectName}` : "No project";
+    projectPrefix.style.fontSize = "11px";
+    projectPrefix.style.lineHeight = "1.2";
+    projectPrefix.style.whiteSpace = "nowrap";
+    projectPrefix.style.overflow = "hidden";
+    projectPrefix.style.textOverflow = "ellipsis";
+    projectPrefix.style.width = "120px";
+    projectPrefix.style.maxWidth = "120px";
+    projectPrefix.style.minWidth = "0";
+    if (typeof cgptApplyPanelTextTone === "function") {
+      cgptApplyPanelTextTone(projectPrefix, "muted");
+    }
+    titleRow.appendChild(projectPrefix);
+
+    const titleActions = document.createElement("div");
+    titleActions.style.display = "flex";
+    titleActions.style.alignItems = "center";
+    titleActions.style.gap = "4px";
+    titleActions.style.minWidth = "0";
+    titleActions.style.overflow = "hidden";
+
     const title = document.createElement("div");
     title.textContent = conversation.title || "(untitled chat)";
+    title.title = `${projectLabel} / ${title.textContent}`;
     title.style.fontWeight = "600";
+    title.style.fontSize = "12px";
+    title.style.lineHeight = "1.25";
     title.style.minWidth = "0";
-    title.style.flex = "1";
+    title.style.flex = "0 1 auto";
     title.style.display = "inline-block";
     title.style.maxWidth = "100%";
     title.style.whiteSpace = "nowrap";
     title.style.overflow = "hidden";
     title.style.textOverflow = "ellipsis";
-    titleRow.appendChild(title);
+    titleActions.appendChild(title);
 
-    const renameButton = document.createElement("button");
-    renameButton.type = "button";
-    renameButton.textContent = "✎";
-    renameButton.title = "Rename";
-    renameButton.setAttribute("aria-label", "Rename chat");
-    renameButton.style.flexShrink = "0";
-    renameButton.style.display = "inline-flex";
-    renameButton.style.alignItems = "center";
-    renameButton.style.justifyContent = "center";
-    renameButton.style.margin = "0";
-    renameButton.style.padding = "0";
-    renameButton.style.border = "none";
-    renameButton.style.background = "transparent";
-    renameButton.style.boxShadow = "none";
-    renameButton.style.borderRadius = "0";
-    renameButton.style.minWidth = "auto";
-    renameButton.style.width = "auto";
-    renameButton.style.minHeight = "auto";
-    renameButton.style.lineHeight = "1";
-    renameButton.style.fontSize = "12px";
-    renameButton.style.cursor = state.runningAction !== "" ? "default" : "pointer";
-    renameButton.style.transform = "none";
-    renameButton.style.verticalAlign = "baseline";
-    renameButton.style.position = "relative";
-    renameButton.style.top = "-1px";
-    if (typeof cgptApplyPanelTextTone === "function") {
-      cgptApplyPanelTextTone(renameButton, "muted");
-    }
-    renameButton.disabled = state.runningAction !== "";
-    renameButton.addEventListener("pointerdown", (event) => {
-      event.stopPropagation();
+    const rowActionDisabled = state.runningAction !== "";
+    const renameButton = cgptCreateSidebarBulkRowIconButton({
+      icon: "✎",
+      title: "Rename",
+      ariaLabel: "Rename chat",
+      disabled: rowActionDisabled,
+      top: "-1px",
+      onClick: () => cgptHandleSidebarConversationRename(conversation),
     });
-    renameButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      cgptHandleSidebarConversationRename(conversation);
+    titleActions.appendChild(renameButton);
+
+    const shareButton = cgptCreateSidebarBulkRowIconButton({
+      icon: "🔗",
+      title: "Create share link",
+      ariaLabel: "Create share link",
+      disabled: rowActionDisabled,
+      onClick: () => cgptHandleSidebarConversationShareLink(conversation),
     });
-    titleRow.appendChild(renameButton);
+    titleActions.appendChild(shareButton);
+
+    const archiveButton = cgptCreateSidebarBulkRowIconButton({
+      icon: "🗄",
+      title: "Archive chat",
+      ariaLabel: "Archive chat",
+      disabled: rowActionDisabled,
+      onClick: () => cgptHandleSidebarConversationArchive(conversation),
+    });
+    titleActions.appendChild(archiveButton);
+    titleRow.appendChild(titleActions);
     content.appendChild(titleRow);
-
-    const projectMeta = document.createElement("div");
-    projectMeta.textContent = conversation.projectName ? `Project: ${conversation.projectName}` : "";
-    projectMeta.title = projectMeta.textContent;
-    projectMeta.style.fontSize = "11px";
-    projectMeta.style.whiteSpace = "nowrap";
-    projectMeta.style.overflow = "hidden";
-    projectMeta.style.textOverflow = "ellipsis";
-    if (typeof cgptApplyPanelTextTone === "function") {
-      cgptApplyPanelTextTone(projectMeta, "muted");
-    }
-    if (projectMeta.textContent) {
-      content.appendChild(projectMeta);
-    }
 
     const metaColumn = document.createElement("div");
     metaColumn.style.display = "flex";
@@ -998,9 +1197,9 @@ function cgptRenderSidebarBulkList(panel, visibleConversations, state) {
     metaColumn.style.alignItems = "flex-end";
     metaColumn.style.justifyContent = "center";
     metaColumn.style.textAlign = "right";
-    metaColumn.style.width = "150px";
-    metaColumn.style.minWidth = "150px";
-    metaColumn.style.maxWidth = "150px";
+    metaColumn.style.width = "240px";
+    metaColumn.style.minWidth = "240px";
+    metaColumn.style.maxWidth = "240px";
     metaColumn.style.gap = "2px";
     metaColumn.style.minWidth = "0";
 
@@ -1018,11 +1217,7 @@ function cgptRenderSidebarBulkList(panel, visibleConversations, state) {
     metaColumn.appendChild(idMeta);
 
     const statusMeta = document.createElement("div");
-    statusMeta.textContent = conversation.isActive
-      ? "Current chat"
-      : conversation.projectName
-      ? `Project: ${conversation.projectName}`
-      : "";
+    statusMeta.textContent = conversation.isActive ? "Current chat" : "";
     statusMeta.title = statusMeta.textContent;
     statusMeta.style.fontSize = "11px";
     statusMeta.style.whiteSpace = "nowrap";
@@ -1122,7 +1317,12 @@ function cgptRenderSidebarBulkPanel() {
     input.value = state.query;
   }
 
-  const visibleConversations = cgptFilterSidebarConversations(snapshot.conversations, state.query);
+  cgptRenderSidebarBulkProjectFilter(panel, snapshot, state);
+  const visibleConversations = cgptFilterSidebarConversations(
+    snapshot.conversations,
+    state.query,
+    state.projectFilter
+  );
   cgptSyncSidebarBulkSelectionSummary(panel, snapshot, state);
 
   cgptRenderSidebarBulkControls(panel, visibleConversations, state);

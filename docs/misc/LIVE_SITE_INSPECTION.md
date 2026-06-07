@@ -34,6 +34,134 @@ CGPT_INSPECT_TARGET=sidebar npm run inspect:chatgpt:profile
 - `CGPT_EDGE_COPY_PROFILE=1`: profile を一時ディレクトリへコピーしてから起動
 - `CGPT_HEADLESS=0`: visible browser で起動
 
+## CDP Extension Reload Mode
+
+ログイン済み Chromium を CDP port 付きで使い、ローカルの unpacked extension を読み込んで Bulk Chats を実機確認する手順です。
+ChatGPT ログインや Cloudflare challenge は自動化せず、既存 profile を使います。
+
+既存 Chromium が `--load-extension` なしで起動している場合、`chrome://extensions` から CDP だけで unpacked extension を後読み込みできないことがあります。
+その場合は同じ profile を `--load-extension` 付きで再起動します。
+
+```bash
+EXT=/home/codex/codex-work/chatgpt-code-saver/extension
+CHROME=/home/codex/.cache/ms-playwright/chromium-1161/chrome-linux/chrome
+PROFILE=/home/codex/.local/share/chatgpt-code-saver/chrome-profile
+CHAT_URL=https://chatgpt.com/
+
+# 既存 CDP Chromium を閉じる。必要なら現在 URL を控えてから実行する。
+node - <<'NODE'
+const { chromium } = require("playwright");
+(async () => {
+  const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
+  const session = await browser.newBrowserCDPSession();
+  await session.send("Browser.close");
+})().catch(() => {});
+NODE
+
+for i in $(seq 1 20); do
+  curl -sf http://127.0.0.1:9222/json/version >/dev/null || break
+  sleep 0.5
+done
+
+setsid -f "$CHROME" \
+  --user-data-dir="$PROFILE" \
+  --no-sandbox \
+  --disable-dev-shm-usage \
+  --disable-gpu \
+  --no-first-run \
+  --no-default-browser-check \
+  --ozone-platform=x11 \
+  --remote-debugging-address=127.0.0.1 \
+  --remote-debugging-port=9222 \
+  --disable-extensions-except="$EXT" \
+  --load-extension="$EXT" \
+  "$CHAT_URL" \
+  >/tmp/chatgpt-code-saver-chrome.log 2>&1
+
+for i in $(seq 1 60); do
+  curl -sf http://127.0.0.1:9222/json/version >/dev/null && break
+  sleep 0.5
+done
+```
+
+拡張が読み込まれたか確認します。
+
+```bash
+node - <<'NODE'
+(async () => {
+  const targets = await fetch("http://127.0.0.1:9222/json/list").then((r) => r.json());
+  console.log(JSON.stringify(
+    targets
+      .map((target) => ({ type: target.type, title: target.title, url: target.url }))
+      .filter((target) => target.url.includes("chrome-extension://") || target.url.includes("chatgpt.com")),
+    null,
+    2
+  ));
+})();
+NODE
+```
+
+期待値:
+
+- `service_worker` target に `chrome-extension://.../background/index.js` が出る
+- ChatGPT page target が出る
+
+Bulk Chats の最小動作確認:
+
+```bash
+node - <<'NODE'
+const { chromium } = require("playwright");
+
+(async () => {
+  const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
+  const context = browser.contexts()[0];
+  const page = context.pages().find((candidate) => /chatgpt\.com/.test(candidate.url())) || context.pages()[0];
+
+  await page.waitForLoadState("domcontentloaded", { timeout: 30_000 }).catch(() => {});
+  await page.waitForTimeout(5_000);
+
+  const before = await page.evaluate(() => ({
+    hasBulkToggle: Boolean(document.getElementById("cgpt-helper-sidebar-bulk-toggle")),
+    helperIds: Array.from(document.querySelectorAll("[id^='cgpt-helper']")).map((node) => node.id),
+  }));
+  console.log("before", JSON.stringify(before, null, 2));
+
+  await page.locator("#cgpt-helper-sidebar-bulk-toggle").click({ timeout: 10_000 });
+  await page.waitForTimeout(12_000);
+
+  const after = await page.evaluate(() => {
+    const panel = document.getElementById("cgpt-helper-sidebar-bulk-panel");
+    const summary = document.getElementById("cgpt-helper-sidebar-bulk-summary");
+    const select = document.getElementById("cgpt-helper-sidebar-bulk-project-select");
+    const list = document.getElementById("cgpt-helper-sidebar-bulk-list");
+    const results = document.getElementById("cgpt-helper-sidebar-bulk-results");
+    return {
+      panelVisible: Boolean(panel && getComputedStyle(panel).display !== "none"),
+      summary: summary ? summary.textContent : "",
+      projectSelectDisabled: select ? select.disabled : null,
+      projectOptions: select ? Array.from(select.options).map((option) => option.textContent).slice(0, 20) : [],
+      listChildCount: list ? list.children.length : null,
+      listTextSample: list ? String(list.textContent || "").replace(/\s+/g, " ").trim().slice(0, 500) : "",
+      resultsText: results ? String(results.textContent || "").replace(/\s+/g, " ").trim().slice(0, 500) : "",
+    };
+  });
+  console.log("after", JSON.stringify(after, null, 2));
+
+  await browser.close();
+})();
+NODE
+```
+
+期待値:
+
+- `hasBulkToggle: true`
+- `panelVisible: true`
+- `projectSelectDisabled: false`
+- `projectOptions` に実 Project 名が入る
+- `listChildCount` が 1 以上
+
+`resultsText` に `conversations_fetch / 429` が出ても、Project API が成功していれば Project select は表示されるべきです。
+
 ## Feature Targets
 
 `CGPT_INSPECT_TARGET` で重点収集する DOM を切り替えます。

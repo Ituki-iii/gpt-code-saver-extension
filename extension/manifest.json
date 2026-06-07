@@ -8,6 +8,7 @@
     "downloads.open",
     "scripting",
     "activeTab",
+    "tabs",
     "storage"
   ],
   "host_permissions": [
@@ -16,6 +17,10 @@
   ],
   "background": {
     "service_worker": "background/index.js"
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
   },
   "content_scripts": [
     {

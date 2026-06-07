@@ -47,15 +47,34 @@ test("loads the extension service worker and records manifest metadata", async (
         ]
       });
       try {
-        const serviceWorker =
-          context.serviceWorkers()[0] ||
-          (await context.waitForEvent("serviceworker", { timeout: 20000 }));
+        let serviceWorker = context.serviceWorkers().find((worker) =>
+          worker.url().startsWith("chrome-extension://")
+        );
+        const deadline = Date.now() + 20000;
+        while (!serviceWorker && Date.now() < deadline) {
+          const nextWorker = await context.waitForEvent("serviceworker", { timeout: Math.max(1, deadline - Date.now()) });
+          if (nextWorker.url().startsWith("chrome-extension://")) {
+            serviceWorker = nextWorker;
+          }
+        }
+        if (!serviceWorker) {
+          throw new Error("extension_service_worker_not_found");
+        }
         const manifestState = await serviceWorker.evaluate(() => ({
           runtimeId: chrome.runtime.id,
           serviceWorkerUrl: self.location.href,
           manifest: chrome.runtime.getManifest(),
         }));
-        process.stdout.write(JSON.stringify(manifestState));
+        const optionsPage = await context.newPage();
+        await optionsPage.goto(\`chrome-extension://\${manifestState.runtimeId}/options/options.html\`, {
+          waitUntil: "domcontentloaded",
+        });
+        const optionsState = await optionsPage.evaluate(() => ({
+          title: document.title,
+          apiDebugVisible: Boolean(document.getElementById("api-debug")),
+          moveDebugVisible: Boolean(document.getElementById("move-debug")),
+        }));
+        process.stdout.write(JSON.stringify({ ...manifestState, optionsState }));
       } finally {
         await context.close().catch(() => {});
       }
@@ -89,5 +108,8 @@ test("loads the extension service worker and records manifest metadata", async (
   expect(manifestState.runtimeId).toBeTruthy();
   expect(manifestState.manifest.name).toBe("ChatGPT Code Saver");
   expect(manifestState.manifest.background.service_worker).toBe("background/index.js");
+  expect(manifestState.manifest.options_ui.page).toBe("options/options.html");
   expect(manifestState.manifest.content_scripts[0].js).toContain("content/init.js");
+  expect(manifestState.optionsState.apiDebugVisible).toBe(true);
+  expect(manifestState.optionsState.moveDebugVisible).toBe(true);
 });

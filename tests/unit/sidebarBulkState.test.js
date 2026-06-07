@@ -32,6 +32,32 @@ test("cgptFilterSidebarConversations includes project items and matches title/pr
   );
 });
 
+test("cgptFilterSidebarConversations filters by all, no project, and selected project", () => {
+  const { cgptFilterSidebarConversations } = loadModule();
+  const conversations = [
+    { id: "plain", title: "Plain chat", isProjectItem: false },
+    { id: "alpha", title: "Alpha task", isProjectItem: true, projectId: "proj-alpha", projectName: "Project Alpha" },
+    { id: "beta", title: "Beta task", isProjectItem: true, projectId: "proj-beta", projectName: "Project Beta" },
+  ];
+
+  assert.deepStrictEqual(
+    cgptFilterSidebarConversations(conversations, "", "").map((item) => item.id),
+    ["plain", "alpha", "beta"]
+  );
+  assert.deepStrictEqual(
+    cgptFilterSidebarConversations(conversations, "", "__none__").map((item) => item.id),
+    ["plain"]
+  );
+  assert.deepStrictEqual(
+    cgptFilterSidebarConversations(conversations, "", "proj-alpha").map((item) => item.id),
+    ["alpha"]
+  );
+  assert.deepStrictEqual(
+    cgptFilterSidebarConversations(conversations, "task", "Project Beta").map((item) => item.id),
+    ["beta"]
+  );
+});
+
 test("cgptSummarizeSidebarSelection returns selected, total, and project counts", () => {
   const { cgptSummarizeSidebarSelection } = loadModule();
   const summary = cgptSummarizeSidebarSelection(

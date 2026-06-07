@@ -127,6 +127,37 @@ test("cgptNormalizeSidebarApiProject unwraps snorlax sidebar gizmo wrappers", ()
   }
 });
 
+test("cgptNormalizeSidebarApiProject unwraps current nested snorlax gizmo display names", () => {
+  installWindowStub();
+  try {
+    const { cgptNormalizeSidebarApiProject } = loadModule();
+    const project = cgptNormalizeSidebarApiProject({
+      gizmo: {
+        gizmo: {
+          id: "g-p-project-1",
+          short_url: "g-p-project-1-slug",
+          display: {
+            name: "Display Project",
+          },
+        },
+      },
+      conversations: [],
+    });
+    assert.equal(project.id, "g-p-project-1");
+    assert.equal(project.name, "Display Project");
+  } finally {
+    cleanupWindowStub();
+  }
+});
+
+test("cgptIsConversationPayloadShape accepts empty API collections", () => {
+  const { cgptIsConversationPayloadShape } = loadModule();
+  assert.equal(cgptIsConversationPayloadShape({ items: [] }), true);
+  assert.equal(cgptIsConversationPayloadShape({ conversations: [] }), true);
+  assert.equal(cgptIsConversationPayloadShape({ data: [] }), true);
+  assert.equal(cgptIsConversationPayloadShape({ detail: "Not Found" }), false);
+});
+
 test("cgptFetchSidebarApiSnapshot returns a normalized API snapshot", async () => {
   installWindowStub();
   try {
@@ -147,7 +178,7 @@ test("cgptFetchSidebarApiSnapshot returns a normalized API snapshot", async () =
         },
       ],
       [
-        "https://chatgpt.com/backend-api/conversations?offset=0&limit=100&order=updated",
+        "https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false",
         {
           ok: true,
           status: 200,
@@ -224,7 +255,7 @@ test("cgptFetchSidebarApiSnapshot enriches slug-like project names from project 
         },
       ],
       [
-        "https://chatgpt.com/backend-api/conversations?offset=0&limit=100&order=updated",
+        "https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false",
         {
           ok: true,
           status: 200,
@@ -294,7 +325,7 @@ test("cgptFetchSidebarApiSnapshot merges nested project conversations even when 
         },
       ],
       [
-        "https://chatgpt.com/backend-api/conversations?offset=0&limit=100&order=updated",
+        "https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false",
         {
           ok: true,
           status: 200,
@@ -379,7 +410,7 @@ test("cgptFetchSidebarApiSnapshot reads unopened project conversations from proj
         },
       ],
       [
-        "https://chatgpt.com/backend-api/conversations?offset=0&limit=100&order=updated",
+        "https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false",
         {
           ok: true,
           status: 200,
@@ -429,7 +460,7 @@ test("cgptFetchSidebarApiSnapshot reads unopened project conversations from proj
   }
 });
 
-test("cgptFetchSidebarApiSnapshot records project API sweep diagnostics and prefers broader snorlax sidebar probes", async () => {
+test("cgptFetchSidebarApiSnapshot records project API sweep diagnostics and prefers current snorlax sidebar probes", async () => {
   installWindowStub();
   try {
     const seenUrls = [];
@@ -439,7 +470,7 @@ test("cgptFetchSidebarApiSnapshot records project API sweep diagnostics and pref
         { ok: true, status: 200, body: { accessToken: "token-1" } },
       ],
       [
-        "https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=100",
+        "https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=5&limit=20",
         {
           ok: true,
           status: 200,
@@ -471,7 +502,7 @@ test("cgptFetchSidebarApiSnapshot records project API sweep diagnostics and pref
         },
       ],
       [
-        "https://chatgpt.com/backend-api/gizmos/proj-1/conversations?offset=0&limit=100&order=updated",
+        "https://chatgpt.com/backend-api/gizmos/proj-1/conversations?cursor=0&limit=5&owned_only=true",
         {
           ok: false,
           status: 422,
@@ -481,7 +512,7 @@ test("cgptFetchSidebarApiSnapshot records project API sweep diagnostics and pref
         },
       ],
       [
-        "https://chatgpt.com/backend-api/gizmos/proj-1/conversations",
+        "https://chatgpt.com/backend-api/gizmos/proj-1/conversations?cursor=0&limit=20&owned_only=true",
         {
           ok: true,
           status: 200,
@@ -497,7 +528,7 @@ test("cgptFetchSidebarApiSnapshot records project API sweep diagnostics and pref
         },
       ],
       [
-        "https://chatgpt.com/backend-api/conversations?offset=0&limit=100&order=updated",
+        "https://chatgpt.com/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false",
         {
           ok: true,
           status: 200,
@@ -537,7 +568,7 @@ test("cgptFetchSidebarApiSnapshot records project API sweep diagnostics and pref
     const result = await cgptFetchSidebarApiSnapshot();
     assert.equal(result.ok, true);
     assert.equal(
-      seenUrls.includes("https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=100"),
+      seenUrls.includes("https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=5&limit=20"),
       true
     );
     assert.equal(
@@ -553,14 +584,115 @@ test("cgptFetchSidebarApiSnapshot records project API sweep diagnostics and pref
     assert.equal(result.snapshot.projectApiSweep[0].conversationTried[0].status, 422);
     assert.equal(result.snapshot.projectApiSweep[0].conversationTried[0].payloadMessage, "invalid query");
     const successfulConversationProbe = result.snapshot.projectApiSweep[0].conversationTried.find(
-      (entry) => entry.url === "https://chatgpt.com/backend-api/gizmos/proj-1/conversations"
+      (entry) => entry.url === "https://chatgpt.com/backend-api/gizmos/proj-1/conversations?cursor=0&limit=20&owned_only=true"
     );
     assert.ok(successfulConversationProbe);
     assert.equal(successfulConversationProbe.itemCount, 1);
     assert.equal(
-      seenUrls.includes("https://chatgpt.com/backend-api/gizmos/proj-1/conversations"),
+      seenUrls.includes("https://chatgpt.com/backend-api/gizmos/proj-1/conversations?cursor=0&limit=20&owned_only=true"),
       true
     );
+  } finally {
+    cleanupWindowStub();
+  }
+});
+
+test("cgptFetchSidebarApiSnapshot keeps projects available when the general conversation API is rate limited", async () => {
+  installWindowStub();
+  try {
+    const responses = new Map([
+      [
+        "https://chatgpt.com/api/auth/session",
+        { ok: true, status: 200, body: { accessToken: "token-1" } },
+      ],
+      [
+        "https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=5&limit=20",
+        {
+          ok: true,
+          status: 200,
+          body: {
+            items: [
+              {
+                gizmo: {
+                  gizmo: {
+                    id: "proj-1",
+                    display: {
+                      name: "Project Alpha",
+                    },
+                  },
+                },
+                conversations: [
+                  {
+                    id: "chat-project-1",
+                    title: "Project Chat",
+                  },
+                ],
+              },
+            ],
+            cursor: null,
+          },
+        },
+      ],
+      [
+        "https://chatgpt.com/backend-api/gizmos/proj-1",
+        {
+          ok: true,
+          status: 200,
+          body: {
+            id: "proj-1",
+            displayName: "Project Alpha",
+          },
+        },
+      ],
+      [
+        "https://chatgpt.com/backend-api/gizmos/proj-1/conversations?cursor=0&limit=5&owned_only=true",
+        {
+          ok: true,
+          status: 200,
+          body: {
+            items: [],
+            cursor: null,
+          },
+        },
+      ],
+    ]);
+    global.fetch = async (url) => {
+      const hit = responses.get(String(url));
+      if (!hit && String(url).includes("/backend-api/conversations")) {
+        return {
+          ok: false,
+          status: 429,
+          async json() {
+            return { detail: "rate limited" };
+          },
+        };
+      }
+      if (!hit) {
+        return {
+          ok: false,
+          status: 404,
+          async json() {
+            return { error: "not found" };
+          },
+        };
+      }
+      return {
+        ok: hit.ok,
+        status: hit.status,
+        async json() {
+          return hit.body;
+        },
+      };
+    };
+    const { cgptFetchSidebarApiSnapshot } = loadModule();
+    const result = await cgptFetchSidebarApiSnapshot();
+    assert.equal(result.ok, true);
+    assert.equal(result.snapshot.projects.length, 1);
+    assert.equal(result.snapshot.projects[0].name, "Project Alpha");
+    assert.equal(result.snapshot.conversations.length, 1);
+    assert.equal(result.snapshot.conversations[0].projectName, "Project Alpha");
+    assert.equal(result.snapshot.diagnostics.phase, "conversations_fetch");
+    assert.equal(result.snapshot.diagnostics.status, 429);
   } finally {
     cleanupWindowStub();
   }
@@ -604,7 +736,9 @@ test("conversation API action functions use single-purpose API requests", async 
         ok: true,
         status: 200,
         async json() {
-          return { ok: true };
+          return String(url).includes("/backend-api/share/create")
+            ? { share_url: "/share/share-1" }
+            : { ok: true };
         },
       };
     };
@@ -614,15 +748,18 @@ test("conversation API action functions use single-purpose API requests", async 
       deleteConversation,
       renameConversation,
       addConversationToProject,
+      createConversationShareLink,
     } = loadModule();
 
     await archiveConversation("chat-1");
     await deleteConversation("chat-2");
     await renameConversation("chat-3", "Next title");
     await addConversationToProject("chat-4", "project-1");
+    const shareResult = await createConversationShareLink("chat-5", "node-1");
+    assert.equal(shareResult.shareUrl, "https://chatgpt.com/share/share-1");
 
     const actionRequests = requests.filter((request) => !request.url.endsWith("/api/auth/session"));
-    assert.equal(actionRequests.length, 4);
+    assert.equal(actionRequests.length, 5);
     assert.deepStrictEqual(
       actionRequests.map((request) => ({
         url: request.url,
@@ -649,6 +786,11 @@ test("conversation API action functions use single-purpose API requests", async 
           url: "https://chatgpt.com/backend-api/conversation/chat-4",
           method: "PATCH",
           body: { project_id: "project-1", gizmo_id: "project-1" },
+        },
+        {
+          url: "https://chatgpt.com/backend-api/share/create",
+          method: "POST",
+          body: { conversation_id: "chat-5", current_node_id: "node-1", is_anonymous: true },
         },
       ]
     );

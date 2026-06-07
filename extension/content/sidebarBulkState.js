@@ -1,5 +1,6 @@
 const cgptSidebarBulkState = {
   query: "",
+  projectFilter: "",
   selectedConversationIds: new Set(),
   runningAction: "",
   lastResult: null,
@@ -21,6 +22,7 @@ const cgptSidebarBulkSubscribers = new Set();
 function cgptCloneSidebarBulkState() {
   return {
     query: cgptSidebarBulkState.query,
+    projectFilter: cgptSidebarBulkState.projectFilter,
     selectedConversationIds: new Set(cgptSidebarBulkState.selectedConversationIds),
     runningAction: cgptSidebarBulkState.runningAction,
     lastResult: cgptSidebarBulkState.lastResult
@@ -51,6 +53,11 @@ function cgptGetSidebarBulkState() {
 
 function cgptSetSidebarBulkQuery(query) {
   cgptSidebarBulkState.query = String(query || "");
+  cgptNotifySidebarBulkSubscribers();
+}
+
+function cgptSetSidebarBulkProjectFilter(projectFilter) {
+  cgptSidebarBulkState.projectFilter = String(projectFilter || "");
   cgptNotifySidebarBulkSubscribers();
 }
 
@@ -164,11 +171,22 @@ function cgptPruneSidebarConversationSelection(conversations = [], options = {})
   }
 }
 
-function cgptFilterSidebarConversations(conversations = [], query = "") {
+function cgptFilterSidebarConversations(conversations = [], query = "", projectFilter = "") {
   const normalizedQuery = String(query || "").trim().toLowerCase();
+  const normalizedProjectFilter = String(projectFilter || "").trim();
   const visible = Array.isArray(conversations) ? conversations.slice() : [];
-  if (!normalizedQuery) return visible;
-  return visible.filter((conversation) => {
+  const projectFiltered = !normalizedProjectFilter
+    ? visible
+    : visible.filter((conversation) => {
+        const projectId = String((conversation && conversation.projectId) || "").trim();
+        const projectName = String((conversation && conversation.projectName) || "").trim();
+        if (normalizedProjectFilter === "__none__") {
+          return !projectId && !projectName && conversation.isProjectItem !== true;
+        }
+        return projectId === normalizedProjectFilter || projectName === normalizedProjectFilter;
+      });
+  if (!normalizedQuery) return projectFiltered;
+  return projectFiltered.filter((conversation) => {
     const title = String((conversation && conversation.title) || "").toLowerCase();
     const projectName = String((conversation && conversation.projectName) || "").toLowerCase();
     const conversationId = String(
@@ -216,6 +234,7 @@ if (typeof module !== "undefined" && module.exports) {
     cgptGetSidebarConversationSelectionKey,
     cgptPruneSidebarConversationSelection,
     cgptSummarizeSidebarSelection,
+    cgptSetSidebarBulkProjectFilter,
     cgptSetSidebarBulkTitleBatchEditorVisible,
     cgptSetSidebarBulkTitleBatchPrefix,
     cgptSetSidebarBulkTitleBatchSuffix,
