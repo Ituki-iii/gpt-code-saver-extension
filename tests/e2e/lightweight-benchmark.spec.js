@@ -110,7 +110,7 @@ function buildFixtureHtml() {
 </html>`;
 }
 
-test("lightweight mode benchmark captures comparative timings", async ({ page, browserName }) => {
+test("@benchmark lightweight mode benchmark captures comparative timings", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "Benchmark is intended for Chromium.");
 
   const stateDir = path.join(artifactsRoot, "state");
