@@ -1035,6 +1035,53 @@ function cgptBuildSidebarConversationTitleUpdate(conversation, prefix = "", suff
   };
 }
 
+function cgptIsSidebarLegacyGuiActionFallbackEnabled() {
+  if (typeof window !== "undefined" && window && window.CGPT_ENABLE_SIDEBAR_GUI_ACTION_FALLBACK === true) {
+    return true;
+  }
+  try {
+    return (
+      typeof localStorage !== "undefined" &&
+      localStorage.getItem("cgpt.sidebarBulk.legacyGuiFallback") === "true"
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
+function cgptGetSidebarApiActionExecutor(action) {
+  if (action === "archive" && typeof archiveConversation === "function") {
+    return (conversationId) => archiveConversation(conversationId);
+  }
+  if (action === "delete" && typeof deleteConversation === "function") {
+    return (conversationId) => deleteConversation(conversationId);
+  }
+  if (action === "project" && typeof addConversationToProject === "function") {
+    return (conversationId, context = {}) => addConversationToProject(conversationId, context.projectId);
+  }
+  if (action === "rename" && typeof renameConversation === "function") {
+    return (conversationId, context = {}) => renameConversation(conversationId, context.title);
+  }
+  return null;
+}
+
+async function cgptRunSidebarApiSingleAction({ action, conversationId, projectTarget, title } = {}) {
+  const executor = cgptGetSidebarApiActionExecutor(action);
+  if (!executor) {
+    throw new Error("failed_api_action_unavailable");
+  }
+  if (action === "project" && !String(projectTarget && projectTarget.projectId || "").trim()) {
+    throw new Error("failed_project_target_missing");
+  }
+  if (action === "rename" && !String(title || "").trim()) {
+    throw new Error("failed_rename_title_missing");
+  }
+  return executor(String(conversationId || ""), {
+    projectId: projectTarget && projectTarget.projectId,
+    title,
+  });
+}
+
 async function cgptRunSidebarBulkAction({ action, conversationIds, projectTarget } = {}) {
   const snapshot =
     typeof cgptGetSidebarConversationSnapshot === "function"
@@ -1047,11 +1094,16 @@ async function cgptRunSidebarBulkAction({ action, conversationIds, projectTarget
     ])
   );
   const results = [];
+  const useLegacyGuiFallback = cgptIsSidebarLegacyGuiActionFallbackEnabled();
   for (const conversationId of Array.isArray(conversationIds) ? conversationIds : []) {
-    const key = String(conversationId || "");
-    const conversation = conversationMap.get(key);
+    const key = String(conversationId || "").trim();
+    const conversation = conversationMap.get(key) || null;
+    if (!key) {
+      results.push({ ok: false, status: "skipped_missing_conversation_id", conversationId: key });
+      continue;
+    }
     if (!conversation) {
-      results.push({ ok: false, status: "skipped_missing_dom", conversationId: key });
+      results.push({ ok: false, status: "skipped_missing_snapshot", conversationId: key });
       continue;
     }
     if (
@@ -1064,9 +1116,40 @@ async function cgptRunSidebarBulkAction({ action, conversationIds, projectTarget
       continue;
     }
     try {
-      await cgptRunSingleSidebarAction(conversation, action, projectTarget);
+      await cgptRunSidebarApiSingleAction({ action, conversationId: key, projectTarget });
+      await cgptWaitForSidebarRefresh();
       results.push({ ok: true, status: "success", conversationId: key, title: conversation.title });
     } catch (error) {
+      if (useLegacyGuiFallback) {
+        try {
+          await cgptRunSingleSidebarAction(conversation, action, projectTarget);
+          results.push({
+            ok: true,
+            status: "success_legacy_gui_fallback",
+            conversationId: key,
+            title: conversation.title,
+          });
+          continue;
+        } catch (fallbackError) {
+          const moveDebugIndex = action === "project"
+            ? cgptCaptureProjectMoveDebugSnapshot("project_move_failed_legacy_gui_fallback", {
+                conversation,
+                projectTarget,
+                error: fallbackError,
+              })
+            : -1;
+          results.push({
+            ok: false,
+            status: fallbackError && fallbackError.message ? fallbackError.message : "failed_timeout",
+            conversationId: key,
+            title: conversation.title,
+            moveDebugIndex,
+            apiStatus: error && error.message ? error.message : "failed_api_action",
+            legacyGuiFallback: true,
+          });
+          continue;
+        }
+      }
       const moveDebugIndex = action === "project"
         ? cgptCaptureProjectMoveDebugSnapshot("project_move_failed", {
             conversation,
@@ -1076,7 +1159,7 @@ async function cgptRunSidebarBulkAction({ action, conversationIds, projectTarget
         : -1;
       results.push({
         ok: false,
-        status: error && error.message ? error.message : "failed_timeout",
+        status: error && error.message ? error.message : "failed_api_action",
         conversationId: key,
         title: conversation.title,
         moveDebugIndex,
@@ -1119,7 +1202,7 @@ async function cgptRunSidebarBulkTitleUpdate({ conversationIds, prefix, suffix }
     const key = String(conversationId || "");
     const conversation = conversationMap.get(key);
     if (!conversation) {
-      results.push({ ok: false, status: "skipped_missing_dom", conversationId: key });
+      results.push({ ok: false, status: "skipped_missing_snapshot", conversationId: key });
       continue;
     }
     const titleUpdate = cgptBuildSidebarConversationTitleUpdate(conversation, prefix, suffix);
@@ -1133,6 +1216,12 @@ async function cgptRunSidebarBulkTitleUpdate({ conversationIds, prefix, suffix }
     }
     try {
       await cgptRenameSidebarConversation(conversation, titleUpdate.nextTitle);
+      await cgptRunSidebarApiSingleAction({
+        action: "rename",
+        conversationId: key,
+        title: titleUpdate.nextTitle,
+      });
+      await cgptWaitForSidebarRefresh();
       results.push({
         ok: true,
         status: "success",
@@ -1141,9 +1230,33 @@ async function cgptRunSidebarBulkTitleUpdate({ conversationIds, prefix, suffix }
         nextTitle: titleUpdate.nextTitle,
       });
     } catch (error) {
+      if (cgptIsSidebarLegacyGuiActionFallbackEnabled()) {
+        try {
+          await cgptRenameSidebarConversationViaUi(conversation, titleUpdate.nextTitle);
+          results.push({
+            ok: true,
+            status: "success_legacy_gui_fallback",
+            conversationId: key,
+            title: conversation.title,
+            nextTitle: titleUpdate.nextTitle,
+          });
+          continue;
+        } catch (fallbackError) {
+          results.push({
+            ok: false,
+            status: fallbackError && fallbackError.message ? fallbackError.message : "failed_timeout",
+            conversationId: key,
+            title: conversation.title,
+            nextTitle: titleUpdate.nextTitle,
+            apiStatus: error && error.message ? error.message : "failed_api_action",
+            legacyGuiFallback: true,
+          });
+          continue;
+        }
+      }
       results.push({
         ok: false,
-        status: error && error.message ? error.message : "failed_timeout",
+        status: error && error.message ? error.message : "failed_api_action",
         conversationId: key,
         title: conversation.title,
         nextTitle: titleUpdate.nextTitle,
@@ -1179,11 +1292,14 @@ if (typeof module !== "undefined" && module.exports) {
     cgptBuildSidebarActionApiRequests,
     cgptFindProjectTargetOption,
     cgptGetSidebarProjectMoveDebugLog,
+    cgptGetSidebarApiActionExecutor,
+    cgptIsSidebarLegacyGuiActionFallbackEnabled,
     cgptOpenSidebarProjectCreationUi,
     cgptRenameSidebarConversation,
     cgptRenameSidebarConversationViaUi,
     cgptRunSingleSidebarApiAction,
     cgptRunSingleSidebarGuiFallbackAction,
+    cgptRunSidebarApiSingleAction,
     cgptRunSidebarBulkAction,
     cgptRunSidebarBulkTitleUpdate,
   };

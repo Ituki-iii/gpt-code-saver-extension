@@ -83,6 +83,32 @@ async function createSidebarBulkApiSnapshotPage(context) {
   await page.goto("https://chatgpt.com/c/sidebar-bulk-api-snapshot", { waitUntil: "domcontentloaded" });
   await expect(page.locator("#cgpt-code-helper-panel")).toBeVisible({ timeout: 10_000 });
   return page;
+async function armProjectMoreEventProbe(page) {
+  await page.evaluate(() => {
+    const trigger = document.querySelector("[data-cgpt-project-more='1']");
+    if (!trigger) {
+      throw new Error("Project More trigger fixture is missing");
+    }
+    const eventNames = [
+      "click",
+      "pointerenter",
+      "pointerover",
+      "pointermove",
+      "pointerdown",
+      "pointerup",
+      "pointerleave",
+    ];
+    window.__cgptProjectMoreEventCounts = Object.fromEntries(eventNames.map((eventName) => [eventName, 0]));
+    eventNames.forEach((eventName) => {
+      trigger.addEventListener(eventName, () => {
+        window.__cgptProjectMoreEventCounts[eventName] += 1;
+      });
+    });
+  });
+}
+
+async function readProjectMoreEventProbe(page) {
+  return page.evaluate(() => window.__cgptProjectMoreEventCounts || {});
 }
 
 test.describe("sidebar bulk feature", () => {
@@ -109,6 +135,24 @@ test.describe("sidebar bulk feature", () => {
       await expect(panel).toBeVisible();
       await expect(page.locator("#cgpt-helper-sidebar-bulk-list")).toContainText("API only plain chat");
       await expect(page.locator("#cgpt-helper-sidebar-bulk-list")).toContainText("api-only");
+  test("opening Bulk Chats does not trigger the project More button", async () => {
+    const page = await createSidebarBulkPage(sharedContext);
+    try {
+      await armProjectMoreEventProbe(page);
+      await page.getByRole("button", { name: "Bulk Chats" }).click();
+      await expect(page.locator("#cgpt-helper-sidebar-bulk-panel")).toBeVisible();
+      await page.waitForTimeout(200);
+
+      const eventCounts = await readProjectMoreEventProbe(page);
+      expect(eventCounts).toEqual({
+        click: 0,
+        pointerenter: 0,
+        pointerover: 0,
+        pointermove: 0,
+        pointerdown: 0,
+        pointerup: 0,
+        pointerleave: 0,
+      });
     } finally {
       await page.close().catch(() => {});
     }
@@ -175,6 +219,39 @@ test.describe("sidebar bulk feature", () => {
       await expect(firstCheckbox).not.toBeChecked();
       await page.getByRole("button", { name: "Rename chat" }).first().click();
       await expect(firstCheckbox).not.toBeChecked();
+    } finally {
+      await page.close().catch(() => {});
+    }
+  });
+
+  test("snapshot refresh does not move the sidebar scroll position", async () => {
+    const page = await createSidebarBulkPage(sharedContext);
+    try {
+      await page.evaluate(() => {
+        const sidebar = document.querySelector("[data-cgpt-sidebar-root='1']");
+        const projectList = document.querySelector("[data-cgpt-project-list='1']");
+        if (!sidebar || !projectList) return;
+        sidebar.style.height = "160px";
+        sidebar.style.overflow = "auto";
+        for (let index = 0; index < 30; index += 1) {
+          const button = document.createElement("button");
+          button.dataset.cgptProject = "1";
+          button.dataset.cgptProjectId = `scroll-proj-${index}`;
+          button.dataset.cgptProjectName = `Scroll Project ${index}`;
+          button.textContent = `Scroll Project ${index}`;
+          projectList.appendChild(button);
+        }
+        sidebar.scrollTop = 90;
+      });
+      const beforeScrollTop = await page.locator("[data-cgpt-sidebar-root='1']").evaluate((sidebar) => sidebar.scrollTop);
+
+      await page.getByRole("button", { name: "Bulk Chats" }).click();
+      await expect(page.locator("#cgpt-helper-sidebar-bulk-panel")).toBeVisible();
+      await page.getByRole("button", { name: "Refresh" }).click();
+      await page.waitForTimeout(500);
+
+      const afterScrollTop = await page.locator("[data-cgpt-sidebar-root='1']").evaluate((sidebar) => sidebar.scrollTop);
+      expect(afterScrollTop).toBe(beforeScrollTop);
     } finally {
       await page.close().catch(() => {});
     }

@@ -135,14 +135,14 @@ function cgptCreateSidebarBulkPanel() {
     };
     const copied =
       typeof cgptCopySidebarApiDebugJson === "function" &&
-      await cgptCopySidebarApiDebugJson(payload);
+      await cgptCopySidebarApiDebugJson(payload, { allowTextareaFallback: true });
     if (copied) {
       showToast("API debug copied to clipboard.", "success");
       return;
     }
     const exported =
       typeof cgptDownloadSidebarApiDebugJson === "function" &&
-      cgptDownloadSidebarApiDebugJson(payload);
+      await cgptDownloadSidebarApiDebugJson(payload);
     showToast(
       exported ? "API debug downloaded." : "API debug export failed.",
       exported ? "success" : "error"
@@ -194,14 +194,14 @@ function cgptCreateSidebarBulkPanel() {
     };
     const copied =
       typeof cgptCopySidebarApiDebugJson === "function" &&
-      await cgptCopySidebarApiDebugJson(payload);
+      await cgptCopySidebarApiDebugJson(payload, { allowTextareaFallback: true });
     if (copied) {
       showToast("Move debug copied to clipboard.", "success");
       return;
     }
     const exported =
       typeof cgptDownloadSidebarApiDebugJson === "function" &&
-      cgptDownloadSidebarApiDebugJson(payload);
+      await cgptDownloadSidebarApiDebugJson(payload);
     showToast(
       exported ? "Move debug downloaded." : "Move debug export failed.",
       exported ? "success" : "error"
