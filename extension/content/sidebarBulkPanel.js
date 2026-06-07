@@ -429,10 +429,10 @@ async function cgptHandleSidebarConversationRename(conversation) {
     if (typeof cgptSetSidebarBulkRunningAction === "function") {
       cgptSetSidebarBulkRunningAction("rename");
     }
-    if (typeof cgptRenameSidebarConversationViaUi !== "function") {
+    if (typeof cgptRenameSidebarConversation !== "function") {
       throw new Error("failed_action_not_found");
     }
-    await cgptRenameSidebarConversationViaUi(conversation, normalizedTitle);
+    await cgptRenameSidebarConversation(conversation, normalizedTitle);
     showToast("Chat renamed.", "success");
   } catch (error) {
     showToast(`Rename failed: ${error && error.message ? error.message : "unknown"}`, "error");

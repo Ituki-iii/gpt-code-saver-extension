@@ -336,6 +336,92 @@ function cgptCollectProjectPageConversationsFromRoot(root = document, project = 
   }).filter((conversation) => conversation && conversation.title);
 }
 
+function cgptBuildPlainSidebarConversation(conversation = {}) {
+  if (!conversation || typeof conversation !== "object") {
+    return null;
+  }
+  const conversationId = String(conversation.conversationId || conversation.id || "").trim();
+  if (!conversationId) {
+    return null;
+  }
+  const raw = conversation.raw && typeof conversation.raw === "object"
+    ? JSON.parse(JSON.stringify(conversation.raw))
+    : undefined;
+  return {
+    id: String(conversation.id || conversationId),
+    title: String(conversation.title || ""),
+    href: String(conversation.href || `/c/${conversationId}`),
+    absoluteUrl: String(conversation.absoluteUrl || ""),
+    conversationId,
+    isActive: conversation.isActive === true,
+    isProjectItem: conversation.isProjectItem === true,
+    projectName: String(conversation.projectName || ""),
+    projectId: String(conversation.projectId || ""),
+    author: String(conversation.author || ""),
+    postedAt: String(conversation.postedAt || ""),
+    membershipState: String(conversation.membershipState || ""),
+    source: String(conversation.source || ""),
+    raw,
+  };
+}
+
+function cgptBuildPlainSidebarProject(project = {}) {
+  if (!project || typeof project !== "object") {
+    return null;
+  }
+  const id = String(project.id || project.projectId || project.name || "").trim();
+  if (!id) {
+    return null;
+  }
+  const raw = project.raw && typeof project.raw === "object"
+    ? JSON.parse(JSON.stringify(project.raw))
+    : undefined;
+  return {
+    id,
+    name: String(project.name || project.projectName || id),
+    slug: String(project.slug || ""),
+    isCurrent: project.isCurrent === true,
+    supportsCreateNew: project.supportsCreateNew === true,
+    raw,
+  };
+}
+
+function cgptBuildPlainSidebarSnapshot(snapshot = {}) {
+  return {
+    ...snapshot,
+    conversations: Array.isArray(snapshot.conversations)
+      ? snapshot.conversations.map(cgptBuildPlainSidebarConversation).filter(Boolean)
+      : [],
+    projects: Array.isArray(snapshot.projects)
+      ? snapshot.projects.map(cgptBuildPlainSidebarProject).filter(Boolean)
+      : [],
+  };
+}
+
+function cgptResolveSidebarConversationDomRef(conversationId, root = document) {
+  const key = String(conversationId || "").trim();
+  if (!key || !root || typeof root.querySelectorAll !== "function") {
+    return null;
+  }
+  const sidebarRoot = cgptFindSidebarRoot(root) || root;
+  const anchors = Array.from(sidebarRoot.querySelectorAll("a[href*='/c/']"));
+  for (const anchor of anchors) {
+    const href = anchor.getAttribute ? anchor.getAttribute("href") || "" : "";
+    const anchorId =
+      (anchor.dataset && anchor.dataset.cgptConversationId) ||
+      cgptExtractConversationIdFromHref(href);
+    const row =
+      typeof anchor.closest === "function"
+        ? anchor.closest("[data-cgpt-conversation-row='1'], li, [role='listitem'], article, section, div") || anchor
+        : anchor;
+    const rowId = row && row.dataset ? row.dataset.cgptConversationId || "" : "";
+    if (String(anchorId || rowId || "") === key) {
+      return row;
+    }
+  }
+  return null;
+}
+
 function cgptGetProjectConversationCoverageKeys(project = {}) {
   const raw = project && project.raw ? project.raw : {};
   return [
@@ -594,7 +680,7 @@ function cgptStartSidebarProjectIframeSweep(snapshot, root = document) {
         cgptSidebarConversationSnapshot.conversations,
         ...iframeSweepEntries.map((entry) => entry && Array.isArray(entry.conversations) ? entry.conversations : [])
       );
-      cgptSidebarConversationSnapshot = {
+      cgptSidebarConversationSnapshot = cgptBuildPlainSidebarSnapshot({
         ...cgptSidebarConversationSnapshot,
         conversations: mergedConversations,
         updatedAt: Date.now(),
@@ -609,7 +695,7 @@ function cgptStartSidebarProjectIframeSweep(snapshot, root = document) {
           targetCount: missingProjects.length,
           results: sweepResults,
         },
-      };
+      });
       if (typeof cgptRenderSidebarBulkPanel === "function") {
         cgptRenderSidebarBulkPanel();
       }
@@ -915,6 +1001,33 @@ function cgptMergeSidebarApiSnapshotWithDom(snapshot, root = document) {
   });
   return {
     ...snapshot,
+    conversations: snapshot.conversations.map((conversation) => {
+      const key = String(
+        (conversation && (conversation.conversationId || conversation.id)) || ""
+      );
+      const domConversation = key ? domConversationIndex.get(key) : null;
+      if (key) {
+        mergedConversationKeys.add(key);
+      }
+      if (!domConversation) {
+        return conversation;
+      }
+      return {
+        ...conversation,
+        title: domConversation.title || conversation.title,
+        isActive: domConversation.isActive === true || conversation.isActive === true,
+        isProjectItem: domConversation.isProjectItem === true || conversation.isProjectItem === true,
+        projectId: domConversation.projectId || conversation.projectId || "",
+        projectName: domConversation.projectName || conversation.projectName || "",
+      };
+    }).concat(
+      Array.from(domConversationIndex.entries())
+        .filter(([key]) => !mergedConversationKeys.has(key))
+        .map(([_key, conversation]) => cgptBuildPlainSidebarConversation({
+          ...conversation,
+          source: conversation.source || "dom_project_page",
+        }))
+    ),
     conversations: Array.isArray(snapshot.conversations)
       ? snapshot.conversations.concat(appendedConversations)
       : appendedConversations,
@@ -1102,6 +1215,31 @@ function cgptRefreshSidebarConversationSnapshot(root = document) {
           if (typeof cgptClearSidebarApiDiagnostics === "function") {
             cgptClearSidebarApiDiagnostics();
           }
+          cgptSidebarConversationSnapshot = cgptBuildPlainSidebarSnapshot({
+            ...mergedSnapshot,
+            source: "internal_api",
+            diagnostics: null,
+            projectIframeSweep: null,
+          });
+          cgptStartSidebarProjectIframeSweep(cgptSidebarConversationSnapshot, root);
+        } else {
+          if (typeof cgptSetSidebarApiDiagnostics === "function") {
+            cgptSetSidebarApiDiagnostics(result ? result.diagnostics : null);
+          }
+          cgptSidebarConversationSnapshot = {
+            sidebarFound: false,
+            conversations: [],
+            projects: [],
+            updatedAt: Date.now(),
+            source: "internal_api",
+            debugBuild: "",
+            diagnostics:
+              typeof cgptGetSidebarApiDiagnostics === "function"
+                ? cgptGetSidebarApiDiagnostics()
+                : (result ? result.diagnostics : null),
+            projectApiSweep: null,
+            projectIframeSweep: null,
+          };
           cgptSidebarConversationSnapshot = {
             ...cgptMergeSidebarApiSnapshotWithActiveDomState(result.snapshot, root),
             source: "internal_api",
@@ -1147,21 +1285,22 @@ function cgptRefreshSidebarConversationSnapshot(root = document) {
 }
 
 function cgptGetSidebarConversationSnapshot() {
+  const plainSnapshot = cgptBuildPlainSidebarSnapshot(cgptSidebarConversationSnapshot);
   return {
-    sidebarFound: cgptSidebarConversationSnapshot.sidebarFound,
-    conversations: cgptSidebarConversationSnapshot.conversations.slice(),
-    projects: cgptSidebarConversationSnapshot.projects.slice(),
-    updatedAt: cgptSidebarConversationSnapshot.updatedAt,
-    source: cgptSidebarConversationSnapshot.source,
-    debugBuild: String(cgptSidebarConversationSnapshot.debugBuild || ""),
-    diagnostics: cgptSidebarConversationSnapshot.diagnostics
-      ? JSON.parse(JSON.stringify(cgptSidebarConversationSnapshot.diagnostics))
+    sidebarFound: plainSnapshot.sidebarFound,
+    conversations: plainSnapshot.conversations,
+    projects: plainSnapshot.projects,
+    updatedAt: plainSnapshot.updatedAt,
+    source: plainSnapshot.source,
+    debugBuild: String(plainSnapshot.debugBuild || ""),
+    diagnostics: plainSnapshot.diagnostics
+      ? JSON.parse(JSON.stringify(plainSnapshot.diagnostics))
       : null,
-    projectApiSweep: cgptSidebarConversationSnapshot.projectApiSweep
-      ? JSON.parse(JSON.stringify(cgptSidebarConversationSnapshot.projectApiSweep))
+    projectApiSweep: plainSnapshot.projectApiSweep
+      ? JSON.parse(JSON.stringify(plainSnapshot.projectApiSweep))
       : null,
-    projectIframeSweep: cgptSidebarConversationSnapshot.projectIframeSweep
-      ? JSON.parse(JSON.stringify(cgptSidebarConversationSnapshot.projectIframeSweep))
+    projectIframeSweep: plainSnapshot.projectIframeSweep
+      ? JSON.parse(JSON.stringify(plainSnapshot.projectIframeSweep))
       : null,
   };
 }
@@ -1229,6 +1368,11 @@ if (typeof module !== "undefined" && module.exports) {
     cgptCollectCurrentProjectPageConversations,
     cgptCollectProjectPageConversationsFromRoot,
     cgptCollectSidebarProjectsDeep,
+    cgptCollectSidebarProjectsFromOpenProjectMenus,
+    cgptBuildPlainSidebarConversation,
+    cgptBuildPlainSidebarProject,
+    cgptBuildPlainSidebarSnapshot,
+    cgptResolveSidebarConversationDomRef,
     cgptExtractConversationIdFromHref,
     cgptExtractProjectIdFromHref,
     cgptGetCurrentProjectIdFromLocation,
