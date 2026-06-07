@@ -97,9 +97,9 @@ test("cgptCollectSidebarConversations marks project items based on row metadata"
   assert.equal(result[1].projectName, "Project Alpha");
 });
 
-test("cgptMergeSidebarApiSnapshotWithDom prefers visible sidebar titles over API titles", () => {
+test("cgptMergeSidebarApiSnapshotWithActiveDomState only complements active state", () => {
   installWindowStub("https://chatgpt.com/");
-  const { cgptMergeSidebarApiSnapshotWithDom } = loadModule();
+  const { cgptMergeSidebarApiSnapshotWithActiveDomState } = loadModule();
   const anchors = [
     createAnchor({ href: "/c/alpha", title: "Visible Alpha Title", active: true }),
     createAnchor({ href: "/c/beta", title: "Visible Beta Title" }),
@@ -117,17 +117,18 @@ test("cgptMergeSidebarApiSnapshotWithDom prefers visible sidebar titles over API
     projects: [{ id: "proj-1", name: "Project Alpha" }],
   };
 
-  const merged = cgptMergeSidebarApiSnapshotWithDom(snapshot, root);
-  assert.equal(merged.conversations[0].title, "Visible Alpha Title");
+  const merged = cgptMergeSidebarApiSnapshotWithActiveDomState(snapshot, root);
+  assert.equal(merged.conversations[0].title, "API Alpha Title");
   assert.equal(merged.conversations[0].isActive, true);
   assert.equal(merged.conversations[1].title, "API Gamma Title");
+  assert.equal(merged.conversations.length, 2);
   cleanupWindowStub();
 });
 
-test("cgptMergeSidebarApiSnapshotWithDom appends current project page conversations missing from the API snapshot", () => {
+test("cgptAppendDomSidebarSnapshotEntries appends current project page conversations missing from the API snapshot", () => {
   installWindowStub("https://chatgpt.com/g/g-p-proj-1/project");
   try {
-    const { cgptMergeSidebarApiSnapshotWithDom } = loadModule();
+    const { cgptAppendDomSidebarSnapshotEntries } = loadModule();
     const projectAnchor = {
       dataset: {
         cgptConversationTitle: "SSD認識不良対処法",
@@ -167,13 +168,74 @@ test("cgptMergeSidebarApiSnapshotWithDom appends current project page conversati
       projects: [{ id: "g-p-proj-1", name: "PC管理" }],
     };
 
-    const merged = cgptMergeSidebarApiSnapshotWithDom(snapshot, root);
+    const merged = cgptAppendDomSidebarSnapshotEntries(snapshot, root);
     assert.equal(merged.conversations.length, 1);
     assert.equal(merged.conversations[0].conversationId, "project-chat-1");
     assert.equal(merged.conversations[0].projectId, "g-p-proj-1");
     assert.equal(merged.conversations[0].projectName, "PC管理");
     assert.equal(merged.conversations[0].isProjectItem, true);
   } finally {
+    cleanupWindowStub();
+  }
+});
+
+test("cgptRefreshSidebarConversationSnapshot keeps successful API snapshots API-only", async () => {
+  installWindowStub("https://chatgpt.com/");
+  global.cgptFetchSidebarApiSnapshot = async () => ({
+    ok: true,
+    snapshot: {
+      sidebarFound: true,
+      conversations: [
+        { id: "alpha", conversationId: "alpha", title: "API Alpha Title", isActive: false },
+      ],
+      projects: [],
+      updatedAt: 100,
+      source: "internal_api",
+      debugBuild: "api-build",
+      diagnostics: { message: "from-api" },
+      projectApiSweep: [{ projectId: "api-project" }],
+      projectIframeSweep: { status: "api-value" },
+    },
+  });
+  global.cgptClearSidebarApiDiagnostics = () => {};
+  try {
+    const {
+      cgptRefreshSidebarConversationSnapshot,
+      cgptGetSidebarConversationSnapshot,
+      cgptIsSidebarConversationRefreshPending,
+    } = loadModule();
+    const anchors = [
+      createAnchor({ href: "/c/alpha", title: "Visible Alpha Title", active: true }),
+      createAnchor({ href: "/c/beta", title: "Visible Beta Title" }),
+    ];
+    const domProject = {
+      dataset: { cgptProjectId: "dom-project" },
+      textContent: "DOM Project",
+      getAttribute: (name) => (name === "href" ? "/g/dom-project/project" : ""),
+    };
+    const root = {
+      querySelector: (selector) => (selector === "[data-cgpt-sidebar-root='1']" ? root : null),
+      querySelectorAll: (selector) => {
+        if (selector === "a[href*='/c/']") return anchors;
+        if (selector === "[data-cgpt-project='1'], [data-cgpt-project-option='1']") return [domProject];
+        return [];
+      },
+    };
+
+    cgptRefreshSidebarConversationSnapshot(root);
+    while (cgptIsSidebarConversationRefreshPending()) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    const snapshot = cgptGetSidebarConversationSnapshot();
+    assert.equal(snapshot.conversations.length, 1);
+    assert.equal(snapshot.conversations[0].title, "API Alpha Title");
+    assert.equal(snapshot.conversations[0].isActive, true);
+    assert.equal(snapshot.projects.length, 0);
+    assert.deepEqual(snapshot.projectApiSweep, [{ projectId: "api-project" }]);
+    assert.equal(snapshot.projectIframeSweep, null);
+  } finally {
+    delete global.cgptFetchSidebarApiSnapshot;
+    delete global.cgptClearSidebarApiDiagnostics;
     cleanupWindowStub();
   }
 });
