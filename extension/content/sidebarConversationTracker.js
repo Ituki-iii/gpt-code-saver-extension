@@ -32,6 +32,8 @@ const CGPT_SIDEBAR_PROJECT_CREATE_LABELS = [
   "新規プロジェクト",
 ];
 
+const CGPT_SIDEBAR_PROJECT_SWEEP_STEPS = 16;
+const CGPT_SIDEBAR_PROJECT_SWEEP_DELAY_MS = 80;
 const CGPT_SIDEBAR_PROJECT_IFRAME_TIMEOUT_MS = 2500;
 
 function cgptIsSidebarBulkHelperNode(node) {
@@ -804,6 +806,9 @@ async function cgptCollectSidebarProjectsDeep(root = document) {
       scrollContainer.scrollTop = initialScrollTop;
     }
   }
+  return collectedProjects;
+}
+
   const menuProjects = await cgptCollectSidebarProjectsFromMoreMenus(root);
   collectedProjects = cgptMergeSidebarProjectCollections(collectedProjects, menuProjects);
   return collectedProjects;
@@ -1223,6 +1228,7 @@ if (typeof module !== "undefined" && module.exports) {
     cgptCollectSidebarProjects,
     cgptCollectCurrentProjectPageConversations,
     cgptCollectProjectPageConversationsFromRoot,
+    cgptCollectSidebarProjectsDeep,
     cgptExtractConversationIdFromHref,
     cgptExtractProjectIdFromHref,
     cgptGetCurrentProjectIdFromLocation,
