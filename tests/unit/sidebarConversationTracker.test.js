@@ -242,6 +242,88 @@ test("cgptRefreshSidebarConversationSnapshot keeps successful API snapshots API-
   }
 });
 
+
+test("cgptRefreshSidebarConversationSnapshot falls back to visible sidebar DOM when API is unavailable", async () => {
+  installWindowStub("https://chatgpt.com/c/dom-alpha");
+  global.cgptFetchSidebarApiSnapshot = async () => ({
+    ok: false,
+    diagnostics: {
+      phase: "snapshot",
+      authMode: "unknown",
+      status: 0,
+      endpoint: "",
+      message: "no_api_diagnostics_yet",
+      endpointTried: [],
+    },
+  });
+  let storedDiagnostics = null;
+  global.cgptSetSidebarApiDiagnostics = (diagnostics) => {
+    storedDiagnostics = diagnostics;
+  };
+  global.cgptGetSidebarApiDiagnostics = () => storedDiagnostics;
+  try {
+    const {
+      cgptRefreshSidebarConversationSnapshot,
+      cgptGetSidebarConversationSnapshot,
+      cgptIsSidebarConversationRefreshPending,
+    } = loadModule();
+
+    const row = {
+      dataset: {},
+      querySelector: () => null,
+      closest: () => null,
+    };
+    const sidebarRoot = {
+      textContent: "New chat Search chats Projects Recents DOM Alpha",
+      parentElement: null,
+      querySelector: () => null,
+      querySelectorAll: (selector) => {
+        if (selector === "a[href*='/c/']") return [anchor];
+        if (selector === "a[href*='/g/'][href*='/project']") return [];
+        return [];
+      },
+    };
+    const anchor = {
+      dataset: {
+        cgptConversationTitle: "DOM Alpha",
+      },
+      textContent: "DOM Alpha",
+      parentElement: sidebarRoot,
+      getAttribute: (name) => {
+        if (name === "href") return "/c/dom-alpha";
+        if (name === "aria-current") return "page";
+        return "";
+      },
+      closest: () => row,
+    };
+    const root = {
+      querySelector: () => null,
+      querySelectorAll: (selector) => {
+        if (selector === "a[href*='/c/']") return [anchor];
+        return [];
+      },
+    };
+
+    cgptRefreshSidebarConversationSnapshot(root);
+    while (cgptIsSidebarConversationRefreshPending()) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    const snapshot = cgptGetSidebarConversationSnapshot();
+    assert.equal(snapshot.source, "dom_fallback");
+    assert.equal(snapshot.sidebarFound, true);
+    assert.equal(snapshot.conversations.length, 1);
+    assert.equal(snapshot.conversations[0].conversationId, "dom-alpha");
+    assert.equal(snapshot.conversations[0].title, "DOM Alpha");
+    assert.equal(snapshot.conversations[0].isActive, true);
+    assert.equal(snapshot.diagnostics.message, "no_api_diagnostics_yet");
+  } finally {
+    delete global.cgptFetchSidebarApiSnapshot;
+    delete global.cgptSetSidebarApiDiagnostics;
+    delete global.cgptGetSidebarApiDiagnostics;
+    cleanupWindowStub();
+  }
+});
+
 test("cgptCollectProjectPageConversationsFromRoot collects non-sidebar project chats with explicit project context", () => {
   const { cgptCollectProjectPageConversationsFromRoot } = loadModule();
   const projectAnchor = {

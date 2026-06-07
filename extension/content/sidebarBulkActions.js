@@ -1215,7 +1215,6 @@ async function cgptRunSidebarBulkTitleUpdate({ conversationIds, prefix, suffix }
       continue;
     }
     try {
-      await cgptRenameSidebarConversation(conversation, titleUpdate.nextTitle);
       await cgptRunSidebarApiSingleAction({
         action: "rename",
         conversationId: key,

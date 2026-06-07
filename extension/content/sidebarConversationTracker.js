@@ -130,17 +130,65 @@ function cgptGetSidebarConversationRouteKey() {
   return `${window.location.pathname || ""}${window.location.search || ""}`;
 }
 
+function cgptScoreSidebarRootCandidate(candidate) {
+  if (!candidate || typeof candidate.querySelectorAll !== "function") return 0;
+  const conversationLinkCount = candidate.querySelectorAll("a[href*='/c/']").length;
+  const projectLinkCount = candidate.querySelectorAll("a[href*='/g/'][href*='/project']").length;
+  const text = cgptNormalizeSidebarLowerText(candidate.textContent || "");
+  const chromeKeywordScore = [
+    "new chat",
+    "search chats",
+    "recents",
+    "projects",
+    "新しいチャット",
+    "チャットを検索",
+    "最近",
+    "プロジェクト",
+  ].reduce((score, keyword) => score + (text.includes(keyword) ? 1 : 0), 0);
+  const hasSidebarLinks = conversationLinkCount > 0 || projectLinkCount > 0;
+  if (!hasSidebarLinks && chromeKeywordScore < 2) return 0;
+  return conversationLinkCount * 10 + projectLinkCount * 8 + chromeKeywordScore;
+}
+
+function cgptFindSidebarRootFromConversationLinks(root = document) {
+  if (!root || typeof root.querySelectorAll !== "function") return null;
+  const anchors = Array.from(root.querySelectorAll("a[href*='/c/']"));
+  let best = null;
+  let bestScore = 0;
+  anchors.forEach((anchor) => {
+    let cursor = anchor && anchor.parentElement ? anchor.parentElement : null;
+    for (let depth = 0; cursor && depth < 8; depth += 1) {
+      const score = cgptScoreSidebarRootCandidate(cursor);
+      const textLength = String(cursor.textContent || "").length;
+      const adjustedScore = score - Math.min(6, Math.floor(textLength / 2000));
+      if (adjustedScore > bestScore) {
+        best = cursor;
+        bestScore = adjustedScore;
+      }
+      cursor = cursor.parentElement || null;
+    }
+  });
+  return bestScore > 0 ? best : null;
+}
+
 function cgptFindSidebarRoot(root = document) {
   if (!root || typeof root.querySelectorAll !== "function") return null;
   const explicit = root.querySelector("[data-cgpt-sidebar-root='1']");
   if (explicit) return explicit;
-  const candidates = Array.from(root.querySelectorAll("aside, nav, [role='navigation']"));
+  const candidates = Array.from(root.querySelectorAll(
+    "aside, nav, [role='navigation'], [data-testid*='sidebar'], [class*='sidebar'], [id*='sidebar']"
+  ));
+  let best = null;
+  let bestScore = 0;
   for (const candidate of candidates) {
-    if (candidate.querySelector("a[href*='/c/']")) {
-      return candidate;
+    const score = cgptScoreSidebarRootCandidate(candidate);
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
     }
   }
-  return null;
+  if (best) return best;
+  return cgptFindSidebarRootFromConversationLinks(root);
 }
 
 function cgptResolveConversationTitle(anchor) {
@@ -830,6 +878,49 @@ function cgptMergeSidebarProjectCollections(existingProjects = [], nextProjects 
     });
 }
 
+function cgptCollectSidebarProjectsFromOpenProjectMenus(root = document) {
+  if (!root || typeof root.querySelectorAll !== "function") {
+    return [];
+  }
+  const menuRoots = Array.from(root.querySelectorAll(
+    "[role='menu'], [role='listbox'], [data-radix-popper-content-wrapper], [data-testid*='menu']"
+  ));
+  const projectCandidates = menuRoots.flatMap((menuRoot) =>
+    Array.from(menuRoot.querySelectorAll("a[href*='/g/'][href*='/project'], [data-cgpt-project='1'], [data-cgpt-project-option='1']"))
+  );
+  const seen = new Set();
+  return projectCandidates.map((element, index) => {
+    const href = element.getAttribute ? element.getAttribute("href") || "" : "";
+    const name = cgptNormalizeSidebarText(
+      (element.dataset && element.dataset.cgptProjectName) ||
+        element.textContent ||
+        `Project ${index + 1}`
+    );
+    if (!name || cgptIsSidebarProjectCreateLabel(name)) return null;
+    const id = String(
+      (element.dataset && element.dataset.cgptProjectId) ||
+        cgptExtractProjectIdFromHref(href) ||
+        name
+    );
+    if (!id || seen.has(id)) return null;
+    seen.add(id);
+    return {
+      id,
+      name,
+      isCurrent: element.getAttribute && element.getAttribute("aria-current") === "page",
+      domRef: element,
+      supportsCreateNew: true,
+      raw: {
+        displayNameSource: "dom_open_menu",
+      },
+    };
+  }).filter(Boolean);
+}
+
+async function cgptCollectSidebarProjectsFromMoreMenus(root = document) {
+  return cgptCollectSidebarProjectsFromOpenProjectMenus(root);
+}
+
 function cgptFindSidebarProjectScrollContainer(root = document) {
   const sidebarRoot = cgptFindSidebarRoot(root);
   if (!sidebarRoot) return null;
@@ -892,9 +983,6 @@ async function cgptCollectSidebarProjectsDeep(root = document) {
       scrollContainer.scrollTop = initialScrollTop;
     }
   }
-  return collectedProjects;
-}
-
   const menuProjects = await cgptCollectSidebarProjectsFromMoreMenus(root);
   collectedProjects = cgptMergeSidebarProjectCollections(collectedProjects, menuProjects);
   return collectedProjects;
@@ -960,7 +1048,6 @@ function cgptMergeSidebarApiSnapshotWithActiveDomState(snapshot, root = document
 }
 
 function cgptAppendDomSidebarSnapshotEntries(snapshot, root = document) {
-function cgptMergeSidebarApiSnapshotWithDom(snapshot, root = document) {
   if (!snapshot || typeof snapshot !== "object") {
     return snapshot;
   }
@@ -985,6 +1072,7 @@ function cgptMergeSidebarApiSnapshotWithDom(snapshot, root = document) {
       ...conversation,
       source: conversation.source || "dom_project_page",
     }));
+
   const domProjects = cgptCollectSidebarProjects(root);
   const existingProjectIds = new Set(
     (Array.isArray(snapshot.projects) ? snapshot.projects : [])
@@ -999,42 +1087,14 @@ function cgptMergeSidebarApiSnapshotWithDom(snapshot, root = document) {
     existingProjectIds.add(id);
     return true;
   });
-  return {
+
+  return cgptBuildPlainSidebarSnapshot({
     ...snapshot,
-    conversations: snapshot.conversations.map((conversation) => {
-      const key = String(
-        (conversation && (conversation.conversationId || conversation.id)) || ""
-      );
-      const domConversation = key ? domConversationIndex.get(key) : null;
-      if (key) {
-        mergedConversationKeys.add(key);
-      }
-      if (!domConversation) {
-        return conversation;
-      }
-      return {
-        ...conversation,
-        title: domConversation.title || conversation.title,
-        isActive: domConversation.isActive === true || conversation.isActive === true,
-        isProjectItem: domConversation.isProjectItem === true || conversation.isProjectItem === true,
-        projectId: domConversation.projectId || conversation.projectId || "",
-        projectName: domConversation.projectName || conversation.projectName || "",
-      };
-    }).concat(
-      Array.from(domConversationIndex.entries())
-        .filter(([key]) => !mergedConversationKeys.has(key))
-        .map(([_key, conversation]) => cgptBuildPlainSidebarConversation({
-          ...conversation,
-          source: conversation.source || "dom_project_page",
-        }))
-    ),
-    conversations: Array.isArray(snapshot.conversations)
-      ? snapshot.conversations.concat(appendedConversations)
-      : appendedConversations,
-    projects: Array.isArray(snapshot.projects)
-      ? snapshot.projects.concat(appendedProjects)
-      : appendedProjects,
-  };
+    conversations: (Array.isArray(snapshot.conversations) ? snapshot.conversations : [])
+      .concat(appendedConversations),
+    projects: (Array.isArray(snapshot.projects) ? snapshot.projects : [])
+      .concat(appendedProjects),
+  });
 }
 
 function cgptMergeSidebarApiSnapshotWithDom(snapshot, root = document) {
@@ -1177,39 +1237,68 @@ function cgptCreateSidebarApiFailureSnapshot(diagnostics = null) {
   };
 }
 
+function cgptGetSidebarDomFallbackConversations(root = document) {
+  return cgptMergeSidebarConversationCollections(
+    cgptCollectSidebarConversations(root),
+    cgptCollectCurrentProjectPageConversations(root)
+  );
+}
+
+function cgptHasVisibleSidebarDomData(snapshot = {}) {
+  return Boolean(
+    snapshot &&
+    (snapshot.sidebarFound === true ||
+      (Array.isArray(snapshot.conversations) && snapshot.conversations.length > 0) ||
+      (Array.isArray(snapshot.projects) && snapshot.projects.length > 0))
+  );
+}
+
+async function cgptCreateSidebarDomFallbackSnapshot(root = document, diagnostics = null) {
+  const sidebarRoot = cgptFindSidebarRoot(root);
+  const conversations = cgptGetSidebarDomFallbackConversations(root);
+  const projects = await cgptCollectSidebarProjectsDeep(root);
+  return cgptBuildPlainSidebarSnapshot({
+    sidebarFound: Boolean(sidebarRoot || conversations.length || projects.length),
+    conversations,
+    projects,
+    updatedAt: Date.now(),
+    source: "dom_fallback",
+    debugBuild: "",
+    diagnostics,
+    projectApiSweep: null,
+    projectIframeSweep: null,
+  });
+}
+
+async function cgptCreateSidebarSnapshotAfterApiFailure(root = document, diagnostics = null) {
+  const domSnapshot = await cgptCreateSidebarDomFallbackSnapshot(root, diagnostics);
+  if (cgptHasVisibleSidebarDomData(domSnapshot)) {
+    return domSnapshot;
+  }
+  return cgptCreateSidebarApiFailureSnapshot(diagnostics);
+}
+
 function cgptRefreshSidebarConversationSnapshot(root = document) {
   if (!cgptSidebarConversationRefreshPromise && typeof cgptFetchSidebarApiSnapshot === "function") {
     cgptSidebarConversationRefreshPromise = cgptFetchSidebarApiSnapshot()
-      .then((result) => {
+      .then(async (result) => {
         if (result && result.ok && result.snapshot) {
           const mergedSnapshot = cgptMergeSidebarApiSnapshotWithDom(result.snapshot, root);
           const hasProjects = Array.isArray(mergedSnapshot.projects) && mergedSnapshot.projects.length > 0;
-          if (!hasProjects) {
+          const hasConversations = Array.isArray(mergedSnapshot.conversations) && mergedSnapshot.conversations.length > 0;
+          if (!hasProjects && !hasConversations) {
             const syntheticDiagnostics = {
               phase: "snapshot",
               authMode: "unknown",
               status: 0,
               endpoint: "",
-              message: "api_projects_missing_from_snapshot",
+              message: "api_snapshot_empty",
               endpointTried: [],
             };
             if (typeof cgptSetSidebarApiDiagnostics === "function") {
               cgptSetSidebarApiDiagnostics(syntheticDiagnostics);
             }
-            cgptSidebarConversationSnapshot = {
-              sidebarFound: false,
-              conversations: [],
-              projects: [],
-              updatedAt: Date.now(),
-              source: "internal_api",
-              debugBuild: "",
-              diagnostics:
-                typeof cgptGetSidebarApiDiagnostics === "function"
-                  ? cgptGetSidebarApiDiagnostics()
-                  : syntheticDiagnostics,
-              projectApiSweep: null,
-              projectIframeSweep: null,
-            };
+            cgptSidebarConversationSnapshot = await cgptCreateSidebarSnapshotAfterApiFailure(root, syntheticDiagnostics);
             return;
           }
           if (typeof cgptClearSidebarApiDiagnostics === "function") {
@@ -1221,43 +1310,21 @@ function cgptRefreshSidebarConversationSnapshot(root = document) {
             diagnostics: null,
             projectIframeSweep: null,
           });
-          cgptStartSidebarProjectIframeSweep(cgptSidebarConversationSnapshot, root);
+          if (hasProjects) {
+            cgptStartSidebarProjectIframeSweep(cgptSidebarConversationSnapshot, root);
+          }
         } else {
           if (typeof cgptSetSidebarApiDiagnostics === "function") {
             cgptSetSidebarApiDiagnostics(result ? result.diagnostics : null);
           }
-          cgptSidebarConversationSnapshot = {
-            sidebarFound: false,
-            conversations: [],
-            projects: [],
-            updatedAt: Date.now(),
-            source: "internal_api",
-            debugBuild: "",
-            diagnostics:
-              typeof cgptGetSidebarApiDiagnostics === "function"
-                ? cgptGetSidebarApiDiagnostics()
-                : (result ? result.diagnostics : null),
-            projectApiSweep: null,
-            projectIframeSweep: null,
-          };
-          cgptSidebarConversationSnapshot = {
-            ...cgptMergeSidebarApiSnapshotWithActiveDomState(result.snapshot, root),
-            source: "internal_api",
-            diagnostics: null,
-            projectIframeSweep: null,
-          };
-          return;
+          const diagnostics =
+            typeof cgptGetSidebarApiDiagnostics === "function"
+              ? cgptGetSidebarApiDiagnostics()
+              : (result ? result.diagnostics : null);
+          cgptSidebarConversationSnapshot = await cgptCreateSidebarSnapshotAfterApiFailure(root, diagnostics);
         }
-        if (typeof cgptSetSidebarApiDiagnostics === "function") {
-          cgptSetSidebarApiDiagnostics(result ? result.diagnostics : null);
-        }
-        cgptSidebarConversationSnapshot = cgptCreateSidebarApiFailureSnapshot(
-          typeof cgptGetSidebarApiDiagnostics === "function"
-            ? cgptGetSidebarApiDiagnostics()
-            : (result ? result.diagnostics : null)
-        );
       })
-      .catch((_error) => {
+      .catch(async (_error) => {
         if (typeof cgptSetSidebarApiDiagnostics === "function") {
           cgptSetSidebarApiDiagnostics({
             phase: "unknown",
@@ -1268,7 +1335,8 @@ function cgptRefreshSidebarConversationSnapshot(root = document) {
             endpointTried: [],
           });
         }
-        cgptSidebarConversationSnapshot = cgptCreateSidebarApiFailureSnapshot(
+        cgptSidebarConversationSnapshot = await cgptCreateSidebarSnapshotAfterApiFailure(
+          root,
           typeof cgptGetSidebarApiDiagnostics === "function"
             ? cgptGetSidebarApiDiagnostics()
             : null
