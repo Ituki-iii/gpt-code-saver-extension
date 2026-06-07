@@ -31,6 +31,34 @@ async function createSidebarBulkPage(context) {
   return page;
 }
 
+async function armProjectMoreEventProbe(page) {
+  await page.evaluate(() => {
+    const trigger = document.querySelector("[data-cgpt-project-more='1']");
+    if (!trigger) {
+      throw new Error("Project More trigger fixture is missing");
+    }
+    const eventNames = [
+      "click",
+      "pointerenter",
+      "pointerover",
+      "pointermove",
+      "pointerdown",
+      "pointerup",
+      "pointerleave",
+    ];
+    window.__cgptProjectMoreEventCounts = Object.fromEntries(eventNames.map((eventName) => [eventName, 0]));
+    eventNames.forEach((eventName) => {
+      trigger.addEventListener(eventName, () => {
+        window.__cgptProjectMoreEventCounts[eventName] += 1;
+      });
+    });
+  });
+}
+
+async function readProjectMoreEventProbe(page) {
+  return page.evaluate(() => window.__cgptProjectMoreEventCounts || {});
+}
+
 test.describe("sidebar bulk feature", () => {
   let sharedContext = null;
 
@@ -44,6 +72,29 @@ test.describe("sidebar bulk feature", () => {
     if (sharedContext) {
       await sharedContext.close().catch(() => {});
       sharedContext = null;
+    }
+  });
+
+  test("opening Bulk Chats does not trigger the project More button", async () => {
+    const page = await createSidebarBulkPage(sharedContext);
+    try {
+      await armProjectMoreEventProbe(page);
+      await page.getByRole("button", { name: "Bulk Chats" }).click();
+      await expect(page.locator("#cgpt-helper-sidebar-bulk-panel")).toBeVisible();
+      await page.waitForTimeout(200);
+
+      const eventCounts = await readProjectMoreEventProbe(page);
+      expect(eventCounts).toEqual({
+        click: 0,
+        pointerenter: 0,
+        pointerover: 0,
+        pointermove: 0,
+        pointerdown: 0,
+        pointerup: 0,
+        pointerleave: 0,
+      });
+    } finally {
+      await page.close().catch(() => {});
     }
   });
 
