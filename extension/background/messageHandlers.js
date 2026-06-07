@@ -2,6 +2,9 @@ const cgptMessageHandlers = {
   applyCodeBlock(message, _sender, sendResponse) {
     return cgptHandleApplyCodeBlock(message, sendResponse);
   },
+  downloadSidebarApiDebugJson(message, _sender, sendResponse) {
+    return cgptHandleSidebarApiDebugDownload(message, sendResponse);
+  },
   pickDownloadFolder(_message, _sender, sendResponse) {
     cgptPromptProjectFolderSelection((result) => {
       sendResponse(result);
