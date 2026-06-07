@@ -83,6 +83,8 @@ async function createSidebarBulkApiSnapshotPage(context) {
   await page.goto("https://chatgpt.com/c/sidebar-bulk-api-snapshot", { waitUntil: "domcontentloaded" });
   await expect(page.locator("#cgpt-code-helper-panel")).toBeVisible({ timeout: 10_000 });
   return page;
+}
+
 async function armProjectMoreEventProbe(page) {
   await page.evaluate(() => {
     const trigger = document.querySelector("[data-cgpt-project-more='1']");
@@ -135,6 +137,11 @@ test.describe("sidebar bulk feature", () => {
       await expect(panel).toBeVisible();
       await expect(page.locator("#cgpt-helper-sidebar-bulk-list")).toContainText("API only plain chat");
       await expect(page.locator("#cgpt-helper-sidebar-bulk-list")).toContainText("api-only");
+    } finally {
+      await page.close().catch(() => {});
+    }
+  });
+
   test("opening Bulk Chats does not trigger the project More button", async () => {
     const page = await createSidebarBulkPage(sharedContext);
     try {

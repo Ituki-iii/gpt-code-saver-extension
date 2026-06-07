@@ -142,7 +142,7 @@ export function demo${index}() {
 </html>`;
 }
 
-test("code block observer stays responsive under repeated mutations", async ({ page, browserName }) => {
+test("@benchmark code block observer stays responsive under repeated mutations", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "This DOM-level verification targets Chromium behavior.");
 
   const screenshotDir = path.join(artifactsRoot, "screenshots");
