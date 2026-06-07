@@ -85,6 +85,181 @@ async function cgptSidebarApiFetchJson(url, requestContext = {}) {
   };
 }
 
+
+function cgptNormalizeSidebarApiActionId(value, fieldName) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    throw new Error(`api_${fieldName || "id"}_missing`);
+  }
+  return normalized;
+}
+
+async function cgptBuildSidebarApiActionRequestContext() {
+  if (typeof fetch !== "function") {
+    throw new Error("api_fetch_unavailable");
+  }
+  const sessionResult = await cgptFetchSessionContext();
+  return cgptBuildSidebarApiRequestContext(sessionResult.payload);
+}
+
+async function cgptSidebarApiFetchActionJson(url, { method = "POST", body = null, requestContext = {} } = {}) {
+  const headers = {
+    Accept: "application/json",
+    ...(body === null ? {} : { "Content-Type": "application/json" }),
+    ...(requestContext.headers || {}),
+  };
+  const response = await fetch(url, {
+    method,
+    credentials: "include",
+    headers,
+    ...(body === null ? {} : { body: JSON.stringify(body) }),
+  });
+  let json = null;
+  try {
+    json = await response.json();
+  } catch (_error) {
+  }
+  return {
+    url,
+    ok: response.ok,
+    status: response.status,
+    json,
+  };
+}
+
+async function cgptRunSidebarApiActionCandidates({ actionName, candidates }) {
+  if (!Array.isArray(candidates) || !candidates.length) {
+    throw new Error(`api_${actionName || "action"}_candidates_missing`);
+  }
+  const requestContext = await cgptBuildSidebarApiActionRequestContext();
+  const attempts = [];
+  for (const candidate of candidates) {
+    const url = cgptResolveSidebarApiAbsoluteUrl(candidate.path);
+    try {
+      const result = await cgptSidebarApiFetchActionJson(url, {
+        method: candidate.method,
+        body: candidate.body,
+        requestContext,
+      });
+      attempts.push({ url, method: candidate.method, status: result.status, ok: result.ok });
+      if (result.ok) {
+        return {
+          ok: true,
+          action: actionName,
+          endpoint: url,
+          status: result.status,
+          json: result.json,
+          attempts,
+        };
+      }
+    } catch (error) {
+      attempts.push({
+        url,
+        method: candidate.method,
+        status: 0,
+        ok: false,
+        message: String((error && error.message) || "api_action_fetch_failed"),
+      });
+    }
+  }
+  const lastAttempt = attempts[attempts.length - 1] || {};
+  const error = new Error(`api_${actionName || "action"}_failed`);
+  error.attempts = attempts;
+  error.status = Number(lastAttempt.status || 0);
+  error.endpoint = String(lastAttempt.url || "");
+  throw error;
+}
+
+function cgptBuildConversationApiPaths(conversationId) {
+  const encodedConversationId = encodeURIComponent(conversationId);
+  return [
+    `/backend-api/conversation/${encodedConversationId}`,
+    `/backend-api/conversations/${encodedConversationId}`,
+  ];
+}
+
+async function archiveConversation(conversationId) {
+  const normalizedConversationId = cgptNormalizeSidebarApiActionId(conversationId, "conversation_id");
+  const candidates = cgptBuildConversationApiPaths(normalizedConversationId).map((path) => ({
+    method: "PATCH",
+    path,
+    body: { is_archived: true },
+  }));
+  return cgptRunSidebarApiActionCandidates({ actionName: "archive", candidates });
+}
+
+async function deleteConversation(conversationId) {
+  const normalizedConversationId = cgptNormalizeSidebarApiActionId(conversationId, "conversation_id");
+  const patchCandidates = cgptBuildConversationApiPaths(normalizedConversationId).map((path) => ({
+    method: "PATCH",
+    path,
+    body: { is_visible: false },
+  }));
+  const deleteCandidates = cgptBuildConversationApiPaths(normalizedConversationId).map((path) => ({
+    method: "DELETE",
+    path,
+    body: null,
+  }));
+  return cgptRunSidebarApiActionCandidates({
+    actionName: "delete",
+    candidates: patchCandidates.concat(deleteCandidates),
+  });
+}
+
+async function renameConversation(conversationId, title) {
+  const normalizedConversationId = cgptNormalizeSidebarApiActionId(conversationId, "conversation_id");
+  const normalizedTitle = cgptNormalizeSidebarApiText(title);
+  if (!normalizedTitle) {
+    throw new Error("api_title_missing");
+  }
+  const candidates = cgptBuildConversationApiPaths(normalizedConversationId).map((path) => ({
+    method: "PATCH",
+    path,
+    body: { title: normalizedTitle },
+  }));
+  return cgptRunSidebarApiActionCandidates({ actionName: "rename", candidates });
+}
+
+async function addConversationToProject(conversationId, projectId) {
+  const normalizedConversationId = cgptNormalizeSidebarApiActionId(conversationId, "conversation_id");
+  const normalizedProjectId = cgptNormalizeSidebarApiActionId(projectId, "project_id");
+  const encodedConversationId = encodeURIComponent(normalizedConversationId);
+  const encodedProjectId = encodeURIComponent(normalizedProjectId);
+  const candidates = [
+    {
+      method: "PATCH",
+      path: `/backend-api/conversation/${encodedConversationId}`,
+      body: { project_id: normalizedProjectId, gizmo_id: normalizedProjectId },
+    },
+    {
+      method: "PATCH",
+      path: `/backend-api/conversations/${encodedConversationId}`,
+      body: { project_id: normalizedProjectId, gizmo_id: normalizedProjectId },
+    },
+    {
+      method: "POST",
+      path: `/backend-api/gizmos/${encodedProjectId}/conversations/${encodedConversationId}`,
+      body: {},
+    },
+    {
+      method: "PUT",
+      path: `/backend-api/gizmos/${encodedProjectId}/conversations/${encodedConversationId}`,
+      body: {},
+    },
+    {
+      method: "POST",
+      path: `/backend-api/projects/${encodedProjectId}/conversations/${encodedConversationId}`,
+      body: {},
+    },
+    {
+      method: "PUT",
+      path: `/backend-api/projects/${encodedProjectId}/conversations/${encodedConversationId}`,
+      body: {},
+    },
+  ];
+  return cgptRunSidebarApiActionCandidates({ actionName: "project", candidates });
+}
+
 function cgptSummarizeSidebarApiPayload(payload) {
   if (Array.isArray(payload)) {
     return {
@@ -977,6 +1152,10 @@ async function cgptFetchSidebarApiSnapshot() {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
+    addConversationToProject,
+    archiveConversation,
+    deleteConversation,
+    renameConversation,
     cgptBuildSidebarApiRequestContext,
     cgptFetchSessionContext,
     cgptFetchSidebarApiSnapshot,

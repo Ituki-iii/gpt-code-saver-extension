@@ -196,3 +196,81 @@ test("project move debug snapshots capture stage, target, and errors", () => {
     delete global.cgptGetSidebarConversationSnapshot;
   }
 });
+
+test("cgptRunSidebarBulkAction runs API actions by conversation id without GUI fallback", async () => {
+  const calls = [];
+  global.cgptGetSidebarConversationSnapshot = () => ({
+    conversations: [
+      { conversationId: "chat-1", title: "Roadmap", projectId: "" },
+      { conversationId: "chat-2", title: "Already there", projectId: "project-1" },
+    ],
+  });
+  global.archiveConversation = async (conversationId) => {
+    calls.push({ action: "archive", conversationId });
+    return { ok: true };
+  };
+  global.document = { querySelectorAll() { return []; } };
+  try {
+    const { cgptRunSidebarBulkAction } = loadModule();
+    const result = await cgptRunSidebarBulkAction({
+      action: "archive",
+      conversationIds: ["chat-1", "missing"],
+    });
+
+    assert.deepStrictEqual(calls, [{ action: "archive", conversationId: "chat-1" }]);
+    assert.equal(result.counts.success, 1);
+    assert.equal(result.counts.skipped, 1);
+    assert.equal(result.results[1].status, "skipped_missing_snapshot");
+  } finally {
+    delete global.cgptGetSidebarConversationSnapshot;
+    delete global.archiveConversation;
+    delete global.document;
+  }
+});
+
+test("cgptRunSidebarBulkAction hard-fails when API executor is unavailable by default", async () => {
+  global.cgptGetSidebarConversationSnapshot = () => ({
+    conversations: [{ conversationId: "chat-1", title: "Roadmap", projectId: "" }],
+  });
+  global.document = { querySelectorAll() { return []; } };
+  try {
+    const { cgptRunSidebarBulkAction } = loadModule();
+    const result = await cgptRunSidebarBulkAction({
+      action: "delete",
+      conversationIds: ["chat-1"],
+    });
+
+    assert.equal(result.counts.failed, 1);
+    assert.equal(result.results[0].status, "failed_api_action_unavailable");
+  } finally {
+    delete global.cgptGetSidebarConversationSnapshot;
+    delete global.document;
+  }
+});
+
+test("cgptRunSidebarBulkTitleUpdate renames through the API action layer", async () => {
+  const calls = [];
+  global.cgptGetSidebarConversationSnapshot = () => ({
+    conversations: [{ conversationId: "chat-1", title: "Roadmap" }],
+  });
+  global.renameConversation = async (conversationId, title) => {
+    calls.push({ conversationId, title });
+    return { ok: true };
+  };
+  global.document = { querySelectorAll() { return []; } };
+  try {
+    const { cgptRunSidebarBulkTitleUpdate } = loadModule();
+    const result = await cgptRunSidebarBulkTitleUpdate({
+      conversationIds: ["chat-1"],
+      prefix: "[Done] ",
+      suffix: "",
+    });
+
+    assert.deepStrictEqual(calls, [{ conversationId: "chat-1", title: "[Done] Roadmap" }]);
+    assert.equal(result.counts.success, 1);
+  } finally {
+    delete global.cgptGetSidebarConversationSnapshot;
+    delete global.renameConversation;
+    delete global.document;
+  }
+});

@@ -584,3 +584,77 @@ test("cgptFetchSidebarApiSnapshot hard-fails when endpoints do not match", async
     cleanupWindowStub();
   }
 });
+
+test("conversation API action functions use single-purpose API requests", async () => {
+  installWindowStub();
+  try {
+    const requests = [];
+    global.fetch = async (url, options = {}) => {
+      requests.push({ url: String(url), options });
+      if (String(url) === "https://chatgpt.com/api/auth/session") {
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { accessToken: "token-1" };
+          },
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return { ok: true };
+        },
+      };
+    };
+
+    const {
+      archiveConversation,
+      deleteConversation,
+      renameConversation,
+      addConversationToProject,
+    } = loadModule();
+
+    await archiveConversation("chat-1");
+    await deleteConversation("chat-2");
+    await renameConversation("chat-3", "Next title");
+    await addConversationToProject("chat-4", "project-1");
+
+    const actionRequests = requests.filter((request) => !request.url.endsWith("/api/auth/session"));
+    assert.equal(actionRequests.length, 4);
+    assert.deepStrictEqual(
+      actionRequests.map((request) => ({
+        url: request.url,
+        method: request.options.method,
+        body: request.options.body ? JSON.parse(request.options.body) : null,
+      })),
+      [
+        {
+          url: "https://chatgpt.com/backend-api/conversation/chat-1",
+          method: "PATCH",
+          body: { is_archived: true },
+        },
+        {
+          url: "https://chatgpt.com/backend-api/conversation/chat-2",
+          method: "PATCH",
+          body: { is_visible: false },
+        },
+        {
+          url: "https://chatgpt.com/backend-api/conversation/chat-3",
+          method: "PATCH",
+          body: { title: "Next title" },
+        },
+        {
+          url: "https://chatgpt.com/backend-api/conversation/chat-4",
+          method: "PATCH",
+          body: { project_id: "project-1", gizmo_id: "project-1" },
+        },
+      ]
+    );
+    assert.equal(actionRequests[0].options.credentials, "include");
+    assert.equal(actionRequests[0].options.headers.Authorization, "Bearer token-1");
+  } finally {
+    cleanupWindowStub();
+  }
+});
