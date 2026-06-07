@@ -996,11 +996,7 @@ function cgptRefreshSidebarConversationSnapshot(root = document) {
     cgptSidebarConversationRefreshPromise = cgptFetchSidebarApiSnapshot()
       .then(async (result) => {
         if (result && result.ok && result.snapshot) {
-          const deepDomProjects = await cgptCollectSidebarProjectsDeep(root);
-          const mergedSnapshot = cgptMergeSidebarApiProjectsWithDom(
-            cgptMergeSidebarApiSnapshotWithDom(result.snapshot, root),
-            deepDomProjects
-          );
+          const mergedSnapshot = cgptMergeSidebarApiSnapshotWithDom(result.snapshot, root);
           const hasProjects = Array.isArray(mergedSnapshot.projects) && mergedSnapshot.projects.length > 0;
           if (!hasProjects) {
             const syntheticDiagnostics = {

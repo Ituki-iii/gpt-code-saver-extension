@@ -251,7 +251,7 @@ test("cgptMergeSidebarApiProjectsWithDom prefers visible sidebar project names",
   assert.equal(merged.projects[1].isCurrent, true);
 });
 
-test("cgptMergeSidebarApiProjectsWithDom prefers exact project id matches from hidden menu entries", () => {
+test("cgptMergeSidebarApiProjectsWithDom prefers exact project id matches from visible DOM entries", () => {
   const { cgptMergeSidebarApiProjectsWithDom } = loadModule();
   const snapshot = {
     projects: [
@@ -260,15 +260,15 @@ test("cgptMergeSidebarApiProjectsWithDom prefers exact project id matches from h
     ],
   };
   const domProjects = [
-    { id: "g-p-69717146c5b88191867de1dedc35cc5e", name: "出張", isCurrent: false, raw: { displayNameSource: "dom_more_menu" } },
-    { id: "g-p-69391c9321d881918607edfff58499ba", name: "chrome拡張開発", isCurrent: false, raw: { displayNameSource: "dom_more_menu" } },
+    { id: "g-p-69717146c5b88191867de1dedc35cc5e", name: "出張", isCurrent: false, raw: { displayNameSource: "dom_visible" } },
+    { id: "g-p-69391c9321d881918607edfff58499ba", name: "chrome拡張開発", isCurrent: false, raw: { displayNameSource: "dom_visible" } },
   ];
 
   const merged = cgptMergeSidebarApiProjectsWithDom(snapshot, domProjects);
   assert.equal(merged.projects[0].name, "出張");
-  assert.equal(merged.projects[0].raw.displayNameSource, "dom_more_menu");
+  assert.equal(merged.projects[0].raw.displayNameSource, "dom_visible");
   assert.equal(merged.projects[1].name, "chrome拡張開発");
-  assert.equal(merged.projects[1].raw.displayNameSource, "dom_more_menu");
+  assert.equal(merged.projects[1].raw.displayNameSource, "dom_visible");
 });
 
 test("cgptCollectSidebarProjects excludes the create-project entry", () => {
