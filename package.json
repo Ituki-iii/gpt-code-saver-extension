@@ -1,6 +1,6 @@
 {
   "name": "chatgpt-code-saver",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "private": true,
   "description": "MV3 workspace for ChatGPT Code Saver with unit tests and Playwright smoke coverage",
   "scripts": {
