@@ -36,7 +36,7 @@ function cgptGetSidebarApiDiagnostics() {
     : null;
 }
 
-function cgptExportSidebarApiDiagnostics() {
+async function cgptExportSidebarApiDiagnostics() {
   const diagnostics = cgptGetSidebarApiDiagnostics();
   if (!diagnostics) {
     return false;
@@ -44,8 +44,131 @@ function cgptExportSidebarApiDiagnostics() {
   return cgptDownloadSidebarApiDebugJson(diagnostics);
 }
 
-async function cgptCopySidebarApiDebugJson(payload) {
-  const content = JSON.stringify(payload, null, 2);
+function cgptFormatSidebarApiDebugJson(payload) {
+  return JSON.stringify(payload, null, 2);
+}
+
+function cgptCaptureSidebarApiSelectionState() {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const activeElement = document.activeElement || null;
+  const selectionState = {
+    activeElement,
+    inputSelection: null,
+    ranges: [],
+  };
+
+  if (
+    activeElement &&
+    typeof activeElement.selectionStart === "number" &&
+    typeof activeElement.selectionEnd === "number"
+  ) {
+    selectionState.inputSelection = {
+      start: activeElement.selectionStart,
+      end: activeElement.selectionEnd,
+      direction: activeElement.selectionDirection || "none",
+    };
+  }
+
+  if (typeof window !== "undefined" && typeof window.getSelection === "function") {
+    const selection = window.getSelection();
+    if (selection) {
+      for (let index = 0; index < selection.rangeCount; index += 1) {
+        selectionState.ranges.push(selection.getRangeAt(index).cloneRange());
+      }
+    }
+  }
+
+  return selectionState;
+}
+
+function cgptRestoreSidebarApiSelectionState(selectionState) {
+  if (!selectionState || typeof document === "undefined") {
+    return;
+  }
+
+  const { activeElement, inputSelection, ranges } = selectionState;
+  if (activeElement && typeof activeElement.focus === "function" && document.contains(activeElement)) {
+    try {
+      activeElement.focus({ preventScroll: true });
+    } catch (_error) {
+      try {
+        activeElement.focus();
+      } catch (_focusError) {
+      }
+    }
+  }
+
+  if (
+    activeElement &&
+    inputSelection &&
+    document.contains(activeElement) &&
+    typeof activeElement.setSelectionRange === "function"
+  ) {
+    try {
+      activeElement.setSelectionRange(
+        inputSelection.start,
+        inputSelection.end,
+        inputSelection.direction
+      );
+    } catch (_error) {
+    }
+  }
+
+  if (typeof window !== "undefined" && typeof window.getSelection === "function") {
+    const selection = window.getSelection();
+    if (selection && Array.isArray(ranges)) {
+      try {
+        selection.removeAllRanges();
+        ranges.forEach((range) => selection.addRange(range));
+      } catch (_error) {
+      }
+    }
+  }
+}
+
+function cgptIsSidebarApiTextareaFallbackAllowed(options = {}) {
+  if (!options || options.allowTextareaFallback !== true) {
+    return false;
+  }
+  const userActivation = globalThis.navigator && globalThis.navigator.userActivation;
+  if (userActivation && typeof userActivation.isActive === "boolean") {
+    return userActivation.isActive;
+  }
+  return true;
+}
+
+function cgptCopySidebarApiDebugJsonWithTextarea(content) {
+  if (typeof document === "undefined" || !document.body) {
+    return false;
+  }
+
+  const selectionState = cgptCaptureSidebarApiSelectionState();
+  const textarea = document.createElement("textarea");
+  try {
+    textarea.value = content;
+    textarea.setAttribute("readonly", "readonly");
+    textarea.style.position = "fixed";
+    textarea.style.top = "-9999px";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    return Boolean(document.execCommand("copy"));
+  } catch (_error) {
+    return false;
+  } finally {
+    if (textarea.parentNode) {
+      textarea.remove();
+    }
+    cgptRestoreSidebarApiSelectionState(selectionState);
+  }
+}
+
+async function cgptCopySidebarApiDebugJson(payload, options = {}) {
+  const content = cgptFormatSidebarApiDebugJson(payload);
   if (!content) {
     return false;
   }
@@ -57,41 +180,55 @@ async function cgptCopySidebarApiDebugJson(payload) {
     } catch (_error) {
     }
   }
-  if (typeof document === "undefined" || !document.body) {
+  if (!cgptIsSidebarApiTextareaFallbackAllowed(options)) {
     return false;
   }
-  try {
-    const textarea = document.createElement("textarea");
-    textarea.value = content;
-    textarea.style.position = "fixed";
-    textarea.style.top = "-9999px";
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-    const ok = document.execCommand("copy");
-    textarea.remove();
-    return Boolean(ok);
-  } catch (_error) {
-    return false;
-  }
+  return cgptCopySidebarApiDebugJsonWithTextarea(content);
 }
 
-function cgptDownloadSidebarApiDebugJson(payload) {
+function cgptCreateSidebarApiDebugFileName(payload) {
+  const timestamp = String((payload && payload.timestamp) || new Date().toISOString());
+  const safeTimestamp = timestamp.replace(/[:.]/g, "-");
+  return `chatgpt-sidebar-api-debug-${safeTimestamp}.json`;
+}
+
+function cgptDownloadSidebarApiDebugJsonViaBackground(fileName, content) {
+  return new Promise((resolve) => {
+    const runtime = globalThis.chrome && globalThis.chrome.runtime;
+    if (!runtime || typeof runtime.sendMessage !== "function") {
+      resolve(false);
+      return;
+    }
+
+    try {
+      runtime.sendMessage(
+        {
+          type: "downloadSidebarApiDebugJson",
+          fileName,
+          content,
+        },
+        (response) => {
+          if (runtime.lastError) {
+            resolve(false);
+            return;
+          }
+          resolve(Boolean(response && response.ok));
+        }
+      );
+    } catch (_error) {
+      resolve(false);
+    }
+  });
+}
+
+async function cgptDownloadSidebarApiDebugJson(payload) {
   try {
-    const timestamp = String((payload && payload.timestamp) || new Date().toISOString());
-    const safeTimestamp = timestamp.replace(/[:.]/g, "-");
-    const fileName = `chatgpt-sidebar-api-debug-${safeTimestamp}.json`;
-    const content = JSON.stringify(payload, null, 2);
-    const blob = new Blob([content], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = fileName;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
-    return true;
+    const content = cgptFormatSidebarApiDebugJson(payload);
+    if (!content) {
+      return false;
+    }
+    const fileName = cgptCreateSidebarApiDebugFileName(payload);
+    return await cgptDownloadSidebarApiDebugJsonViaBackground(fileName, content);
   } catch (_error) {
     return false;
   }
@@ -99,11 +236,17 @@ function cgptDownloadSidebarApiDebugJson(payload) {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
+    cgptCaptureSidebarApiSelectionState,
     cgptClearSidebarApiDiagnostics,
     cgptCopySidebarApiDebugJson,
+    cgptCopySidebarApiDebugJsonWithTextarea,
+    cgptCreateSidebarApiDebugFileName,
     cgptDownloadSidebarApiDebugJson,
+    cgptDownloadSidebarApiDebugJsonViaBackground,
     cgptExportSidebarApiDiagnostics,
     cgptGetSidebarApiDiagnostics,
+    cgptIsSidebarApiTextareaFallbackAllowed,
+    cgptRestoreSidebarApiSelectionState,
     cgptSetSidebarApiDiagnostics,
   };
 }
