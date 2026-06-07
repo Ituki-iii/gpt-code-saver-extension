@@ -32,16 +32,6 @@ const CGPT_SIDEBAR_PROJECT_CREATE_LABELS = [
   "新規プロジェクト",
 ];
 
-const CGPT_SIDEBAR_PROJECT_MORE_LABELS = [
-  "show more",
-  "more",
-  "see more",
-  "さらに表示",
-  "もっと見る",
-];
-
-const CGPT_SIDEBAR_PROJECT_SWEEP_STEPS = 16;
-const CGPT_SIDEBAR_PROJECT_SWEEP_DELAY_MS = 80;
 const CGPT_SIDEBAR_PROJECT_IFRAME_TIMEOUT_MS = 2500;
 
 function cgptIsSidebarBulkHelperNode(node) {
@@ -86,12 +76,6 @@ function cgptIsProjectSectionLabel(label) {
 
 function cgptIsSidebarProjectCreateLabel(label) {
   return CGPT_SIDEBAR_PROJECT_CREATE_LABELS.some((candidate) =>
-    cgptNormalizeSidebarLowerText(label).includes(cgptNormalizeSidebarLowerText(candidate))
-  );
-}
-
-function cgptIsSidebarProjectMoreLabel(label) {
-  return CGPT_SIDEBAR_PROJECT_MORE_LABELS.some((candidate) =>
     cgptNormalizeSidebarLowerText(label).includes(cgptNormalizeSidebarLowerText(candidate))
   );
 }
@@ -180,53 +164,6 @@ function cgptDelay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, Math.max(0, Number(ms) || 0));
   });
-}
-
-function cgptDispatchSidebarProjectTriggerEvent(element, eventName, EventClass, extra = {}) {
-  if (!element || typeof element.dispatchEvent !== "function" || typeof EventClass !== "function") {
-    return;
-  }
-  try {
-    element.dispatchEvent(new EventClass(eventName, {
-      bubbles: true,
-      cancelable: true,
-      view: window,
-      ...extra,
-    }));
-  } catch (_error) {
-  }
-}
-
-function cgptOpenSidebarProjectMoreTrigger(trigger) {
-  if (!trigger) return;
-  const PointerEvt = typeof PointerEvent === "function" ? PointerEvent : MouseEvent;
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "pointerenter", PointerEvt, { pointerType: "mouse" });
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "mouseenter", MouseEvent);
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "mouseover", MouseEvent);
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "mousemove", MouseEvent);
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "pointerdown", PointerEvt, { pointerType: "mouse", buttons: 1 });
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "mousedown", MouseEvent, { buttons: 1 });
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "pointerup", PointerEvt, { pointerType: "mouse" });
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "mouseup", MouseEvent);
-  if (typeof trigger.click === "function") {
-    try {
-      trigger.click();
-    } catch (_error) {
-    }
-  }
-}
-
-function cgptCloseSidebarProjectMoreTrigger(trigger) {
-  if (!trigger) return;
-  const PointerEvt = typeof PointerEvent === "function" ? PointerEvent : MouseEvent;
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "pointerleave", PointerEvt, { pointerType: "mouse" });
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "mouseleave", MouseEvent);
-  try {
-    if (typeof document !== "undefined" && document.body && typeof document.body.click === "function") {
-      document.body.click();
-    }
-  } catch (_error) {
-  }
 }
 
 function cgptExtractSidebarProjectDisplayHint(value) {
@@ -792,97 +729,6 @@ function cgptGetSidebarProjectSections(sidebarRoot) {
   });
 }
 
-function cgptResolveSidebarProjectMoreTriggerLabel(element) {
-  if (!element) return "";
-  return cgptNormalizeSidebarText(
-    (element.getAttribute && (
-      element.getAttribute("aria-label") ||
-      element.getAttribute("title")
-    )) ||
-    (element.textContent || "")
-  );
-}
-
-function cgptFindSidebarProjectMoreTriggers(sidebarRoot) {
-  if (!sidebarRoot || typeof sidebarRoot.querySelectorAll !== "function") {
-    return [];
-  }
-  const candidates = Array.from(
-    sidebarRoot.querySelectorAll("button, a, [role='button'], div, span")
-  );
-  const seen = new Set();
-  return candidates.map((element) => {
-    const label = cgptResolveSidebarProjectMoreTriggerLabel(element);
-    if (!cgptIsSidebarProjectMoreLabel(label)) {
-      return null;
-    }
-    const clickable =
-      (typeof element.closest === "function" &&
-        element.closest("button, a, [role='button'], [tabindex], li, div")) ||
-      element;
-    if (!clickable) return null;
-    const key = `${clickable.tagName || "node"}:${label}`;
-    if (seen.has(key)) return null;
-    seen.add(key);
-    return clickable;
-  }).filter(Boolean);
-}
-
-function cgptCollectSidebarProjectsFromOpenProjectMenus(root = document) {
-  if (!root || typeof root.querySelectorAll !== "function") {
-    return [];
-  }
-  const candidates = Array.from(
-    root.querySelectorAll(
-      "a[href*='/g/'][href*='/project'], [role='menu'] a, [role='dialog'] a, [data-radix-popper-content-wrapper] a"
-    )
-  );
-  const seen = new Set();
-  return candidates.map((element, index) => {
-    const href = element.getAttribute ? element.getAttribute("href") || "" : "";
-    const id = cgptExtractProjectIdFromHref(href) || `sidebar-menu-project-${index + 1}`;
-    const name = cgptNormalizeSidebarText(
-      (element.dataset && element.dataset.cgptProjectName) || element.textContent || ""
-    );
-    if (!id || !name || cgptIsSidebarProjectCreateLabel(name) || cgptIsSidebarProjectMoreLabel(name) || seen.has(id)) {
-      return null;
-    }
-    seen.add(id);
-    return {
-      id,
-      name,
-      isCurrent: element.getAttribute && element.getAttribute("aria-current") === "page",
-      domRef: element,
-      supportsCreateNew: true,
-      raw: {
-        displayNameSource: "dom_more_menu",
-      },
-    };
-  }).filter(Boolean);
-}
-
-async function cgptCollectSidebarProjectsFromMoreMenus(root = document) {
-  const sidebarRoot = cgptFindSidebarRoot(root);
-  if (!sidebarRoot) {
-    return [];
-  }
-  const triggerCandidates = cgptFindSidebarProjectMoreTriggers(sidebarRoot);
-  const collected = [];
-  for (const trigger of triggerCandidates) {
-    try {
-      cgptOpenSidebarProjectMoreTrigger(trigger);
-      await cgptDelay(CGPT_SIDEBAR_PROJECT_SWEEP_DELAY_MS);
-      const menuProjects = cgptCollectSidebarProjectsFromOpenProjectMenus(document);
-      collected.push(...menuProjects);
-    } catch (_error) {
-    } finally {
-      cgptCloseSidebarProjectMoreTrigger(trigger);
-      await cgptDelay(20);
-    }
-  }
-  return cgptMergeSidebarProjectCollections([], collected);
-}
-
 function cgptMergeSidebarProjectCollections(existingProjects = [], nextProjects = []) {
   const seen = new Set();
   return []
@@ -1023,6 +869,7 @@ function cgptMergeSidebarApiSnapshotWithActiveDomState(snapshot, root = document
 }
 
 function cgptAppendDomSidebarSnapshotEntries(snapshot, root = document) {
+function cgptMergeSidebarApiSnapshotWithDom(snapshot, root = document) {
   if (!snapshot || typeof snapshot !== "object") {
     return snapshot;
   }
@@ -1217,6 +1064,36 @@ function cgptRefreshSidebarConversationSnapshot(root = document) {
     cgptSidebarConversationRefreshPromise = cgptFetchSidebarApiSnapshot()
       .then((result) => {
         if (result && result.ok && result.snapshot) {
+          const mergedSnapshot = cgptMergeSidebarApiSnapshotWithDom(result.snapshot, root);
+          const hasProjects = Array.isArray(mergedSnapshot.projects) && mergedSnapshot.projects.length > 0;
+          if (!hasProjects) {
+            const syntheticDiagnostics = {
+              phase: "snapshot",
+              authMode: "unknown",
+              status: 0,
+              endpoint: "",
+              message: "api_projects_missing_from_snapshot",
+              endpointTried: [],
+            };
+            if (typeof cgptSetSidebarApiDiagnostics === "function") {
+              cgptSetSidebarApiDiagnostics(syntheticDiagnostics);
+            }
+            cgptSidebarConversationSnapshot = {
+              sidebarFound: false,
+              conversations: [],
+              projects: [],
+              updatedAt: Date.now(),
+              source: "internal_api",
+              debugBuild: "",
+              diagnostics:
+                typeof cgptGetSidebarApiDiagnostics === "function"
+                  ? cgptGetSidebarApiDiagnostics()
+                  : syntheticDiagnostics,
+              projectApiSweep: null,
+              projectIframeSweep: null,
+            };
+            return;
+          }
           if (typeof cgptClearSidebarApiDiagnostics === "function") {
             cgptClearSidebarApiDiagnostics();
           }
@@ -1346,8 +1223,6 @@ if (typeof module !== "undefined" && module.exports) {
     cgptCollectSidebarProjects,
     cgptCollectCurrentProjectPageConversations,
     cgptCollectProjectPageConversationsFromRoot,
-    cgptCollectSidebarProjectsDeep,
-    cgptCollectSidebarProjectsFromOpenProjectMenus,
     cgptExtractConversationIdFromHref,
     cgptExtractProjectIdFromHref,
     cgptGetCurrentProjectIdFromLocation,

@@ -113,6 +113,39 @@ test.describe("sidebar bulk feature", () => {
     }
   });
 
+  test("snapshot refresh does not move the sidebar scroll position", async () => {
+    const page = await createSidebarBulkPage(sharedContext);
+    try {
+      await page.evaluate(() => {
+        const sidebar = document.querySelector("[data-cgpt-sidebar-root='1']");
+        const projectList = document.querySelector("[data-cgpt-project-list='1']");
+        if (!sidebar || !projectList) return;
+        sidebar.style.height = "160px";
+        sidebar.style.overflow = "auto";
+        for (let index = 0; index < 30; index += 1) {
+          const button = document.createElement("button");
+          button.dataset.cgptProject = "1";
+          button.dataset.cgptProjectId = `scroll-proj-${index}`;
+          button.dataset.cgptProjectName = `Scroll Project ${index}`;
+          button.textContent = `Scroll Project ${index}`;
+          projectList.appendChild(button);
+        }
+        sidebar.scrollTop = 90;
+      });
+      const beforeScrollTop = await page.locator("[data-cgpt-sidebar-root='1']").evaluate((sidebar) => sidebar.scrollTop);
+
+      await page.getByRole("button", { name: "Bulk Chats" }).click();
+      await expect(page.locator("#cgpt-helper-sidebar-bulk-panel")).toBeVisible();
+      await page.getByRole("button", { name: "Refresh" }).click();
+      await page.waitForTimeout(500);
+
+      const afterScrollTop = await page.locator("[data-cgpt-sidebar-root='1']").evaluate((sidebar) => sidebar.scrollTop);
+      expect(afterScrollTop).toBe(beforeScrollTop);
+    } finally {
+      await page.close().catch(() => {});
+    }
+  });
+
   test("bulk project assignment supports an existing project target", async () => {
     const page = await createSidebarBulkPage(sharedContext);
     try {
