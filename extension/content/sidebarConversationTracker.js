@@ -742,6 +742,133 @@ function cgptMergeSidebarProjectCollections(existingProjects = [], nextProjects 
     });
 }
 
+function cgptFindSidebarProjectScrollContainer(root = document) {
+  const sidebarRoot = cgptFindSidebarRoot(root);
+  if (!sidebarRoot) return null;
+  let best = null;
+  let bestDepth = -1;
+  const candidates = [sidebarRoot].concat(Array.from(sidebarRoot.querySelectorAll("div, nav, aside, section, ul")));
+  candidates.forEach((element) => {
+    if (!element || typeof element.scrollTop !== "number") return;
+    const scrollHeight = Number(element.scrollHeight || 0);
+    const clientHeight = Number(element.clientHeight || 0);
+    if (!(scrollHeight > clientHeight + 8 && clientHeight > 0)) return;
+    let depth = 0;
+    let cursor = element;
+    while (cursor && cursor !== sidebarRoot) {
+      depth += 1;
+      cursor = cursor.parentElement || null;
+    }
+    if (depth > bestDepth) {
+      best = element;
+      bestDepth = depth;
+    }
+  });
+  return best;
+}
+
+async function cgptCollectSidebarProjectsDeep(root = document) {
+  let collectedProjects = cgptCollectSidebarProjects(root);
+  const scrollContainer = cgptFindSidebarProjectScrollContainer(root);
+  if (scrollContainer) {
+    const initialScrollTop = Number(scrollContainer.scrollTop || 0);
+    let previousSignature = "";
+    try {
+      for (let step = 0; step < CGPT_SIDEBAR_PROJECT_SWEEP_STEPS; step += 1) {
+        const currentProjects = cgptCollectSidebarProjects(root);
+        collectedProjects = cgptMergeSidebarProjectCollections(collectedProjects, currentProjects);
+        const currentSignature = collectedProjects.map((project) => `${project.id}:${project.name}`).join("|");
+        const maxScrollTop = Math.max(0, Number(scrollContainer.scrollHeight || 0) - Number(scrollContainer.clientHeight || 0));
+        const nextScrollTop = Math.min(
+          maxScrollTop,
+          Number(scrollContainer.scrollTop || 0) + Math.max(120, Math.floor(Number(scrollContainer.clientHeight || 0) * 0.85))
+        );
+        if (nextScrollTop <= Number(scrollContainer.scrollTop || 0) && currentSignature === previousSignature) {
+          break;
+        }
+        previousSignature = currentSignature;
+        if (nextScrollTop <= Number(scrollContainer.scrollTop || 0)) {
+          break;
+        }
+        scrollContainer.scrollTop = nextScrollTop;
+        if (typeof scrollContainer.dispatchEvent === "function" && typeof Event === "function") {
+          try {
+            scrollContainer.dispatchEvent(new Event("scroll", { bubbles: true }));
+          } catch (_error) {
+          }
+        }
+        await cgptDelay(CGPT_SIDEBAR_PROJECT_SWEEP_DELAY_MS);
+      }
+      collectedProjects = cgptMergeSidebarProjectCollections(collectedProjects, cgptCollectSidebarProjects(root));
+    } finally {
+      scrollContainer.scrollTop = initialScrollTop;
+    }
+  }
+  const menuProjects = await cgptCollectSidebarProjectsFromMoreMenus(root);
+  collectedProjects = cgptMergeSidebarProjectCollections(collectedProjects, menuProjects);
+  return collectedProjects;
+}
+
+function cgptCollectSidebarActiveConversationIndex(root = document) {
+  const domConversations = []
+    .concat(cgptCollectSidebarConversations(root))
+    .concat(cgptCollectCurrentProjectPageConversations(root));
+  const index = new Map();
+  domConversations.forEach((conversation) => {
+    const key = String((conversation && (conversation.conversationId || conversation.id)) || "");
+    if (!key) return;
+    index.set(key, conversation.isActive === true || index.get(key) === true);
+  });
+  return index;
+}
+
+function cgptMergeSidebarApiSnapshotWithActiveDomState(snapshot, root = document) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return snapshot;
+  }
+  const activeConversationIndex = cgptCollectSidebarActiveConversationIndex(root);
+  const activeConversationKeys = Array.from(activeConversationIndex.entries())
+    .filter(([_key, isActive]) => isActive === true)
+    .map(([key]) => key);
+  const activeConversationKeySet = new Set(activeConversationKeys);
+  const domProjects = cgptCollectSidebarProjects(root);
+  const currentProjectIds = new Set(
+    domProjects
+      .filter((project) => project && project.isCurrent === true && project.id)
+      .map((project) => String(project.id))
+  );
+  return {
+    ...snapshot,
+    conversations: Array.isArray(snapshot.conversations)
+      ? snapshot.conversations.map((conversation) => {
+          const key = String((conversation && (conversation.conversationId || conversation.id)) || "");
+          if (!key || !activeConversationIndex.has(key)) {
+            return conversation;
+          }
+          return {
+            ...conversation,
+            isActive: activeConversationKeys.length
+              ? activeConversationKeySet.has(key)
+              : conversation.isActive === true,
+          };
+        })
+      : snapshot.conversations,
+    projects: Array.isArray(snapshot.projects)
+      ? snapshot.projects.map((project) => {
+          const id = String((project && project.id) || "");
+          if (!id || !currentProjectIds.has(id)) {
+            return project;
+          }
+          return {
+            ...project,
+            isCurrent: true,
+          };
+        })
+      : snapshot.projects,
+  };
+}
+
+function cgptAppendDomSidebarSnapshotEntries(snapshot, root = document) {
 function cgptMergeSidebarApiSnapshotWithDom(snapshot, root = document) {
   if (!snapshot || typeof snapshot !== "object") {
     return snapshot;
@@ -749,57 +876,51 @@ function cgptMergeSidebarApiSnapshotWithDom(snapshot, root = document) {
   const domConversations = []
     .concat(cgptCollectSidebarConversations(root))
     .concat(cgptCollectCurrentProjectPageConversations(root));
-  const domProjects = cgptCollectSidebarProjects(root);
-  if (!domConversations.length || !Array.isArray(snapshot.conversations)) {
-    return cgptMergeSidebarApiProjectsWithDom(snapshot, domProjects);
-  }
-  const domConversationIndex = new Map();
-  domConversations.forEach((conversation) => {
-    const key = String(conversation.conversationId || conversation.id || "");
-    if (!key) return;
-    const previous = domConversationIndex.get(key);
-    domConversationIndex.set(key, previous ? {
-      ...previous,
+  const existingConversationKeys = new Set(
+    (Array.isArray(snapshot.conversations) ? snapshot.conversations : [])
+      .map((conversation) => String((conversation && (conversation.conversationId || conversation.id)) || ""))
+      .filter(Boolean)
+  );
+  const appendedConversations = domConversations
+    .filter((conversation) => {
+      const key = String((conversation && (conversation.conversationId || conversation.id)) || "");
+      if (!key || existingConversationKeys.has(key)) {
+        return false;
+      }
+      existingConversationKeys.add(key);
+      return true;
+    })
+    .map((conversation) => ({
       ...conversation,
-      title: conversation.title || previous.title || "",
-      projectId: conversation.projectId || previous.projectId || "",
-      projectName: conversation.projectName || previous.projectName || "",
-      isProjectItem: conversation.isProjectItem === true || previous.isProjectItem === true,
-      isActive: conversation.isActive === true || previous.isActive === true,
-    } : conversation);
+      source: conversation.source || "dom_project_page",
+    }));
+  const domProjects = cgptCollectSidebarProjects(root);
+  const existingProjectIds = new Set(
+    (Array.isArray(snapshot.projects) ? snapshot.projects : [])
+      .map((project) => String((project && project.id) || ""))
+      .filter(Boolean)
+  );
+  const appendedProjects = domProjects.filter((project) => {
+    const id = String((project && project.id) || "");
+    if (!id || existingProjectIds.has(id)) {
+      return false;
+    }
+    existingProjectIds.add(id);
+    return true;
   });
-  const mergedConversationKeys = new Set();
-  const mergedSnapshot = {
+  return {
     ...snapshot,
-    conversations: snapshot.conversations.map((conversation) => {
-      const key = String(
-        (conversation && (conversation.conversationId || conversation.id)) || ""
-      );
-      const domConversation = key ? domConversationIndex.get(key) : null;
-      if (key) {
-        mergedConversationKeys.add(key);
-      }
-      if (!domConversation) {
-        return conversation;
-      }
-      return {
-        ...conversation,
-        title: domConversation.title || conversation.title,
-        isActive: domConversation.isActive === true || conversation.isActive === true,
-        isProjectItem: domConversation.isProjectItem === true || conversation.isProjectItem === true,
-        projectId: domConversation.projectId || conversation.projectId || "",
-        projectName: domConversation.projectName || conversation.projectName || "",
-      };
-    }).concat(
-      Array.from(domConversationIndex.entries())
-        .filter(([key]) => !mergedConversationKeys.has(key))
-        .map(([_key, conversation]) => ({
-          ...conversation,
-          source: conversation.source || "dom_project_page",
-        }))
-    ),
+    conversations: Array.isArray(snapshot.conversations)
+      ? snapshot.conversations.concat(appendedConversations)
+      : appendedConversations,
+    projects: Array.isArray(snapshot.projects)
+      ? snapshot.projects.concat(appendedProjects)
+      : appendedProjects,
   };
-  return cgptMergeSidebarApiProjectsWithDom(mergedSnapshot, domProjects);
+}
+
+function cgptMergeSidebarApiSnapshotWithDom(snapshot, root = document) {
+  return cgptMergeSidebarApiSnapshotWithActiveDomState(snapshot, root);
 }
 
 function cgptMergeSidebarConversationCollections(existingConversations = [], nextConversations = []) {
@@ -924,10 +1045,24 @@ function cgptMergeSidebarApiProjectsWithDom(snapshot, domProjects = []) {
   };
 }
 
+function cgptCreateSidebarApiFailureSnapshot(diagnostics = null) {
+  return {
+    sidebarFound: false,
+    conversations: [],
+    projects: [],
+    updatedAt: Date.now(),
+    source: "internal_api",
+    debugBuild: "",
+    diagnostics,
+    projectApiSweep: null,
+    projectIframeSweep: null,
+  };
+}
+
 function cgptRefreshSidebarConversationSnapshot(root = document) {
   if (!cgptSidebarConversationRefreshPromise && typeof cgptFetchSidebarApiSnapshot === "function") {
     cgptSidebarConversationRefreshPromise = cgptFetchSidebarApiSnapshot()
-      .then(async (result) => {
+      .then((result) => {
         if (result && result.ok && result.snapshot) {
           const mergedSnapshot = cgptMergeSidebarApiSnapshotWithDom(result.snapshot, root);
           const hasProjects = Array.isArray(mergedSnapshot.projects) && mergedSnapshot.projects.length > 0;
@@ -963,31 +1098,21 @@ function cgptRefreshSidebarConversationSnapshot(root = document) {
             cgptClearSidebarApiDiagnostics();
           }
           cgptSidebarConversationSnapshot = {
-            ...mergedSnapshot,
+            ...cgptMergeSidebarApiSnapshotWithActiveDomState(result.snapshot, root),
             source: "internal_api",
             diagnostics: null,
             projectIframeSweep: null,
           };
-          cgptStartSidebarProjectIframeSweep(cgptSidebarConversationSnapshot, root);
-        } else {
-          if (typeof cgptSetSidebarApiDiagnostics === "function") {
-            cgptSetSidebarApiDiagnostics(result ? result.diagnostics : null);
-          }
-          cgptSidebarConversationSnapshot = {
-            sidebarFound: false,
-            conversations: [],
-            projects: [],
-            updatedAt: Date.now(),
-            source: "internal_api",
-            debugBuild: "",
-            diagnostics:
-              typeof cgptGetSidebarApiDiagnostics === "function"
-                ? cgptGetSidebarApiDiagnostics()
-                : (result ? result.diagnostics : null),
-            projectApiSweep: null,
-            projectIframeSweep: null,
-          };
+          return;
         }
+        if (typeof cgptSetSidebarApiDiagnostics === "function") {
+          cgptSetSidebarApiDiagnostics(result ? result.diagnostics : null);
+        }
+        cgptSidebarConversationSnapshot = cgptCreateSidebarApiFailureSnapshot(
+          typeof cgptGetSidebarApiDiagnostics === "function"
+            ? cgptGetSidebarApiDiagnostics()
+            : (result ? result.diagnostics : null)
+        );
       })
       .catch((_error) => {
         if (typeof cgptSetSidebarApiDiagnostics === "function") {
@@ -1000,20 +1125,11 @@ function cgptRefreshSidebarConversationSnapshot(root = document) {
             endpointTried: [],
           });
         }
-        cgptSidebarConversationSnapshot = {
-          sidebarFound: false,
-          conversations: [],
-          projects: [],
-          updatedAt: Date.now(),
-          source: "internal_api",
-          debugBuild: "",
-          diagnostics:
-            typeof cgptGetSidebarApiDiagnostics === "function"
-              ? cgptGetSidebarApiDiagnostics()
-              : null,
-          projectApiSweep: null,
-          projectIframeSweep: null,
-        };
+        cgptSidebarConversationSnapshot = cgptCreateSidebarApiFailureSnapshot(
+          typeof cgptGetSidebarApiDiagnostics === "function"
+            ? cgptGetSidebarApiDiagnostics()
+            : null
+        );
       })
       .finally(() => {
         cgptSidebarConversationRefreshPromise = null;
@@ -1113,8 +1229,11 @@ if (typeof module !== "undefined" && module.exports) {
     cgptHasProjectConversationCoverage,
     cgptGetSidebarConversationRouteKey,
     cgptGetSidebarConversationSnapshot,
+    cgptRefreshSidebarConversationSnapshot,
     cgptIsSidebarConversationRefreshPending,
     cgptMergeSidebarApiProjectsWithDom,
+    cgptMergeSidebarApiSnapshotWithActiveDomState,
+    cgptAppendDomSidebarSnapshotEntries,
     cgptMergeSidebarApiSnapshotWithDom,
     cgptFilterProjectSectionLabel: cgptIsProjectSectionLabel,
   };
