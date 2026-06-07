@@ -32,16 +32,6 @@ const CGPT_SIDEBAR_PROJECT_CREATE_LABELS = [
   "新規プロジェクト",
 ];
 
-const CGPT_SIDEBAR_PROJECT_MORE_LABELS = [
-  "show more",
-  "more",
-  "see more",
-  "さらに表示",
-  "もっと見る",
-];
-
-const CGPT_SIDEBAR_PROJECT_SWEEP_STEPS = 16;
-const CGPT_SIDEBAR_PROJECT_SWEEP_DELAY_MS = 80;
 const CGPT_SIDEBAR_PROJECT_IFRAME_TIMEOUT_MS = 2500;
 
 function cgptIsSidebarBulkHelperNode(node) {
@@ -86,12 +76,6 @@ function cgptIsProjectSectionLabel(label) {
 
 function cgptIsSidebarProjectCreateLabel(label) {
   return CGPT_SIDEBAR_PROJECT_CREATE_LABELS.some((candidate) =>
-    cgptNormalizeSidebarLowerText(label).includes(cgptNormalizeSidebarLowerText(candidate))
-  );
-}
-
-function cgptIsSidebarProjectMoreLabel(label) {
-  return CGPT_SIDEBAR_PROJECT_MORE_LABELS.some((candidate) =>
     cgptNormalizeSidebarLowerText(label).includes(cgptNormalizeSidebarLowerText(candidate))
   );
 }
@@ -180,53 +164,6 @@ function cgptDelay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, Math.max(0, Number(ms) || 0));
   });
-}
-
-function cgptDispatchSidebarProjectTriggerEvent(element, eventName, EventClass, extra = {}) {
-  if (!element || typeof element.dispatchEvent !== "function" || typeof EventClass !== "function") {
-    return;
-  }
-  try {
-    element.dispatchEvent(new EventClass(eventName, {
-      bubbles: true,
-      cancelable: true,
-      view: window,
-      ...extra,
-    }));
-  } catch (_error) {
-  }
-}
-
-function cgptOpenSidebarProjectMoreTrigger(trigger) {
-  if (!trigger) return;
-  const PointerEvt = typeof PointerEvent === "function" ? PointerEvent : MouseEvent;
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "pointerenter", PointerEvt, { pointerType: "mouse" });
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "mouseenter", MouseEvent);
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "mouseover", MouseEvent);
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "mousemove", MouseEvent);
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "pointerdown", PointerEvt, { pointerType: "mouse", buttons: 1 });
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "mousedown", MouseEvent, { buttons: 1 });
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "pointerup", PointerEvt, { pointerType: "mouse" });
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "mouseup", MouseEvent);
-  if (typeof trigger.click === "function") {
-    try {
-      trigger.click();
-    } catch (_error) {
-    }
-  }
-}
-
-function cgptCloseSidebarProjectMoreTrigger(trigger) {
-  if (!trigger) return;
-  const PointerEvt = typeof PointerEvent === "function" ? PointerEvent : MouseEvent;
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "pointerleave", PointerEvt, { pointerType: "mouse" });
-  cgptDispatchSidebarProjectTriggerEvent(trigger, "mouseleave", MouseEvent);
-  try {
-    if (typeof document !== "undefined" && document.body && typeof document.body.click === "function") {
-      document.body.click();
-    }
-  } catch (_error) {
-  }
 }
 
 function cgptExtractSidebarProjectDisplayHint(value) {
@@ -792,97 +729,6 @@ function cgptGetSidebarProjectSections(sidebarRoot) {
   });
 }
 
-function cgptResolveSidebarProjectMoreTriggerLabel(element) {
-  if (!element) return "";
-  return cgptNormalizeSidebarText(
-    (element.getAttribute && (
-      element.getAttribute("aria-label") ||
-      element.getAttribute("title")
-    )) ||
-    (element.textContent || "")
-  );
-}
-
-function cgptFindSidebarProjectMoreTriggers(sidebarRoot) {
-  if (!sidebarRoot || typeof sidebarRoot.querySelectorAll !== "function") {
-    return [];
-  }
-  const candidates = Array.from(
-    sidebarRoot.querySelectorAll("button, a, [role='button'], div, span")
-  );
-  const seen = new Set();
-  return candidates.map((element) => {
-    const label = cgptResolveSidebarProjectMoreTriggerLabel(element);
-    if (!cgptIsSidebarProjectMoreLabel(label)) {
-      return null;
-    }
-    const clickable =
-      (typeof element.closest === "function" &&
-        element.closest("button, a, [role='button'], [tabindex], li, div")) ||
-      element;
-    if (!clickable) return null;
-    const key = `${clickable.tagName || "node"}:${label}`;
-    if (seen.has(key)) return null;
-    seen.add(key);
-    return clickable;
-  }).filter(Boolean);
-}
-
-function cgptCollectSidebarProjectsFromOpenProjectMenus(root = document) {
-  if (!root || typeof root.querySelectorAll !== "function") {
-    return [];
-  }
-  const candidates = Array.from(
-    root.querySelectorAll(
-      "a[href*='/g/'][href*='/project'], [role='menu'] a, [role='dialog'] a, [data-radix-popper-content-wrapper] a"
-    )
-  );
-  const seen = new Set();
-  return candidates.map((element, index) => {
-    const href = element.getAttribute ? element.getAttribute("href") || "" : "";
-    const id = cgptExtractProjectIdFromHref(href) || `sidebar-menu-project-${index + 1}`;
-    const name = cgptNormalizeSidebarText(
-      (element.dataset && element.dataset.cgptProjectName) || element.textContent || ""
-    );
-    if (!id || !name || cgptIsSidebarProjectCreateLabel(name) || cgptIsSidebarProjectMoreLabel(name) || seen.has(id)) {
-      return null;
-    }
-    seen.add(id);
-    return {
-      id,
-      name,
-      isCurrent: element.getAttribute && element.getAttribute("aria-current") === "page",
-      domRef: element,
-      supportsCreateNew: true,
-      raw: {
-        displayNameSource: "dom_more_menu",
-      },
-    };
-  }).filter(Boolean);
-}
-
-async function cgptCollectSidebarProjectsFromMoreMenus(root = document) {
-  const sidebarRoot = cgptFindSidebarRoot(root);
-  if (!sidebarRoot) {
-    return [];
-  }
-  const triggerCandidates = cgptFindSidebarProjectMoreTriggers(sidebarRoot);
-  const collected = [];
-  for (const trigger of triggerCandidates) {
-    try {
-      cgptOpenSidebarProjectMoreTrigger(trigger);
-      await cgptDelay(CGPT_SIDEBAR_PROJECT_SWEEP_DELAY_MS);
-      const menuProjects = cgptCollectSidebarProjectsFromOpenProjectMenus(document);
-      collected.push(...menuProjects);
-    } catch (_error) {
-    } finally {
-      cgptCloseSidebarProjectMoreTrigger(trigger);
-      await cgptDelay(20);
-    }
-  }
-  return cgptMergeSidebarProjectCollections([], collected);
-}
-
 function cgptMergeSidebarProjectCollections(existingProjects = [], nextProjects = []) {
   const seen = new Set();
   return []
@@ -894,73 +740,6 @@ function cgptMergeSidebarProjectCollections(existingProjects = [], nextProjects 
       seen.add(key);
       return true;
     });
-}
-
-function cgptFindSidebarProjectScrollContainer(root = document) {
-  const sidebarRoot = cgptFindSidebarRoot(root);
-  if (!sidebarRoot) return null;
-  let best = null;
-  let bestDepth = -1;
-  const candidates = [sidebarRoot].concat(Array.from(sidebarRoot.querySelectorAll("div, nav, aside, section, ul")));
-  candidates.forEach((element) => {
-    if (!element || typeof element.scrollTop !== "number") return;
-    const scrollHeight = Number(element.scrollHeight || 0);
-    const clientHeight = Number(element.clientHeight || 0);
-    if (!(scrollHeight > clientHeight + 8 && clientHeight > 0)) return;
-    let depth = 0;
-    let cursor = element;
-    while (cursor && cursor !== sidebarRoot) {
-      depth += 1;
-      cursor = cursor.parentElement || null;
-    }
-    if (depth > bestDepth) {
-      best = element;
-      bestDepth = depth;
-    }
-  });
-  return best;
-}
-
-async function cgptCollectSidebarProjectsDeep(root = document) {
-  let collectedProjects = cgptCollectSidebarProjects(root);
-  const scrollContainer = cgptFindSidebarProjectScrollContainer(root);
-  if (scrollContainer) {
-    const initialScrollTop = Number(scrollContainer.scrollTop || 0);
-    let previousSignature = "";
-    try {
-      for (let step = 0; step < CGPT_SIDEBAR_PROJECT_SWEEP_STEPS; step += 1) {
-        const currentProjects = cgptCollectSidebarProjects(root);
-        collectedProjects = cgptMergeSidebarProjectCollections(collectedProjects, currentProjects);
-        const currentSignature = collectedProjects.map((project) => `${project.id}:${project.name}`).join("|");
-        const maxScrollTop = Math.max(0, Number(scrollContainer.scrollHeight || 0) - Number(scrollContainer.clientHeight || 0));
-        const nextScrollTop = Math.min(
-          maxScrollTop,
-          Number(scrollContainer.scrollTop || 0) + Math.max(120, Math.floor(Number(scrollContainer.clientHeight || 0) * 0.85))
-        );
-        if (nextScrollTop <= Number(scrollContainer.scrollTop || 0) && currentSignature === previousSignature) {
-          break;
-        }
-        previousSignature = currentSignature;
-        if (nextScrollTop <= Number(scrollContainer.scrollTop || 0)) {
-          break;
-        }
-        scrollContainer.scrollTop = nextScrollTop;
-        if (typeof scrollContainer.dispatchEvent === "function" && typeof Event === "function") {
-          try {
-            scrollContainer.dispatchEvent(new Event("scroll", { bubbles: true }));
-          } catch (_error) {
-          }
-        }
-        await cgptDelay(CGPT_SIDEBAR_PROJECT_SWEEP_DELAY_MS);
-      }
-      collectedProjects = cgptMergeSidebarProjectCollections(collectedProjects, cgptCollectSidebarProjects(root));
-    } finally {
-      scrollContainer.scrollTop = initialScrollTop;
-    }
-  }
-  const menuProjects = await cgptCollectSidebarProjectsFromMoreMenus(root);
-  collectedProjects = cgptMergeSidebarProjectCollections(collectedProjects, menuProjects);
-  return collectedProjects;
 }
 
 function cgptMergeSidebarApiSnapshotWithDom(snapshot, root = document) {
@@ -1150,11 +929,7 @@ function cgptRefreshSidebarConversationSnapshot(root = document) {
     cgptSidebarConversationRefreshPromise = cgptFetchSidebarApiSnapshot()
       .then(async (result) => {
         if (result && result.ok && result.snapshot) {
-          const deepDomProjects = await cgptCollectSidebarProjectsDeep(root);
-          const mergedSnapshot = cgptMergeSidebarApiProjectsWithDom(
-            cgptMergeSidebarApiSnapshotWithDom(result.snapshot, root),
-            deepDomProjects
-          );
+          const mergedSnapshot = cgptMergeSidebarApiSnapshotWithDom(result.snapshot, root);
           const hasProjects = Array.isArray(mergedSnapshot.projects) && mergedSnapshot.projects.length > 0;
           if (!hasProjects) {
             const syntheticDiagnostics = {
@@ -1332,8 +1107,6 @@ if (typeof module !== "undefined" && module.exports) {
     cgptCollectSidebarProjects,
     cgptCollectCurrentProjectPageConversations,
     cgptCollectProjectPageConversationsFromRoot,
-    cgptCollectSidebarProjectsDeep,
-    cgptCollectSidebarProjectsFromOpenProjectMenus,
     cgptExtractConversationIdFromHref,
     cgptExtractProjectIdFromHref,
     cgptGetCurrentProjectIdFromLocation,
