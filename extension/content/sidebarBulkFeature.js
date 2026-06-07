@@ -22,6 +22,7 @@ function cgptInitSidebarBulkFeature(root = document) {
         const selectionSignature = Array.from(nextState.selectedConversationIds || []).sort().join("|");
         const stateSignature = [
           nextState.query,
+          nextState.projectFilter || "",
           nextState.runningAction,
           nextState.projectTarget ? nextState.projectTarget.mode : "",
           nextState.projectTarget ? nextState.projectTarget.projectId : "",

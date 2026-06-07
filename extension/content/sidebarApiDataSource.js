@@ -7,6 +7,9 @@ const CGPT_SIDEBAR_API_ENDPOINTS = {
     "/backend-api/me",
   ],
   projects: [
+    "/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=5&limit=20",
+    "/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=20&limit=20",
+    "/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=100&limit=100",
     "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=100",
     "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=50",
     "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=20",
@@ -16,6 +19,8 @@ const CGPT_SIDEBAR_API_ENDPOINTS = {
     "/backend-api/projects?offset=0&limit=100&order=updated",
   ],
   conversations: [
+    "/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false",
+    "/backend-api/conversations?offset=0&limit=100&order=updated&is_archived=false&is_starred=false",
     "/backend-api/conversations?offset=0&limit=100&order=updated",
     "/backend-api/conversations?limit=100&offset=0",
   ],
@@ -40,6 +45,18 @@ function cgptIsSidebarApiProjectSlugName(value) {
 function cgptUnwrapSidebarApiProjectCandidate(project = {}) {
   if (!project || typeof project !== "object") {
     return null;
+  }
+  if (
+    project.gizmo &&
+    typeof project.gizmo === "object" &&
+    project.gizmo.gizmo &&
+    typeof project.gizmo.gizmo === "object"
+  ) {
+    return {
+      ...project,
+      ...project.gizmo,
+      ...project.gizmo.gizmo,
+    };
   }
   if (project.gizmo && typeof project.gizmo === "object") {
     return {
@@ -260,6 +277,47 @@ async function addConversationToProject(conversationId, projectId) {
   return cgptRunSidebarApiActionCandidates({ actionName: "project", candidates });
 }
 
+function cgptResolveSidebarShareUrl(payload = {}) {
+  if (!payload || typeof payload !== "object") return "";
+  const directUrl = payload.share_url || payload.shareUrl || payload.url || payload.public_url || payload.publicUrl || "";
+  if (directUrl) {
+    return cgptResolveSidebarApiAbsoluteUrl(directUrl);
+  }
+  const shareId = payload.share_id || payload.shareId || payload.id || "";
+  return shareId ? cgptResolveSidebarApiAbsoluteUrl(`/share/${encodeURIComponent(String(shareId))}`) : "";
+}
+
+async function createConversationShareLink(conversationId, currentNodeId = "") {
+  const normalizedConversationId = cgptNormalizeSidebarApiActionId(conversationId, "conversation_id");
+  const normalizedCurrentNodeId = String(currentNodeId || "").trim();
+  const bodyCandidates = [
+    {
+      conversation_id: normalizedConversationId,
+      current_node_id: normalizedCurrentNodeId || null,
+      is_anonymous: true,
+    },
+    {
+      conversation_id: normalizedConversationId,
+      is_anonymous: true,
+    },
+    {
+      conversation_id: normalizedConversationId,
+    },
+  ];
+  const result = await cgptRunSidebarApiActionCandidates({
+    actionName: "share",
+    candidates: bodyCandidates.map((body) => ({
+      method: "POST",
+      path: "/backend-api/share/create",
+      body,
+    })),
+  });
+  return {
+    ...result,
+    shareUrl: cgptResolveSidebarShareUrl(result.json),
+  };
+}
+
 function cgptSummarizeSidebarApiPayload(payload) {
   if (Array.isArray(payload)) {
     return {
@@ -402,7 +460,9 @@ function cgptIsProjectPayloadShape(payload) {
 }
 
 function cgptIsConversationPayloadShape(payload) {
-  return cgptSidebarApiExtractCollection(payload, ["items", "conversations", "data"]).length > 0;
+  if (Array.isArray(payload)) return true;
+  if (!payload || typeof payload !== "object") return false;
+  return ["items", "conversations", "data"].some((key) => Array.isArray(payload[key]));
 }
 
 function cgptNormalizeSidebarApiProject(project = {}) {
@@ -429,6 +489,7 @@ function cgptNormalizeSidebarApiProject(project = {}) {
       candidate.title ||
       candidate.display_name ||
       candidate.displayName ||
+      (candidate.display && candidate.display.name) ||
       candidate.label ||
       candidate.workspace_name ||
       candidate.workspaceName ||
@@ -477,6 +538,8 @@ function cgptBuildSidebarApiProjectConversationCandidates(project = {}) {
   const uniqueRouteCandidates = Array.from(new Set(routeCandidates));
   if (!uniqueRouteCandidates.length) return [];
   const suffixes = [
+    "/conversations?cursor=0&limit=5&owned_only=true",
+    "/conversations?cursor=0&limit=20&owned_only=true",
     "/conversations?offset=0&limit=100&order=updated",
     "/conversations?limit=100&offset=0",
     "/conversations?offset=0&limit=100",
@@ -726,6 +789,13 @@ function cgptNormalizeSidebarApiConversation(conversation = {}, projectIndex = n
       conversation.updated_at ||
       ""
   );
+  const currentNodeId = cgptNormalizeSidebarApiText(
+    conversation.current_node_id ||
+      conversation.currentNodeId ||
+      conversation.current_node ||
+      conversation.currentNode ||
+      ""
+  );
   const absoluteUrl = cgptResolveSidebarApiAbsoluteUrl(`/c/${conversationId}`);
   return {
     id: conversationId,
@@ -739,6 +809,7 @@ function cgptNormalizeSidebarApiConversation(conversation = {}, projectIndex = n
     projectId,
     author,
     postedAt,
+    currentNodeId,
     membershipState,
     source: "internal_api",
     raw: {
@@ -749,6 +820,7 @@ function cgptNormalizeSidebarApiConversation(conversation = {}, projectIndex = n
       absoluteUrl,
       author,
       postedAt,
+      currentNodeId,
     },
   };
 }
@@ -1112,11 +1184,29 @@ async function cgptFetchSidebarApiSnapshot() {
     const projectResult = await cgptFetchAllProjects(requestContext);
     endpointTried.push(...projectResult.endpointTried);
     const projectIndex = new Map(projectResult.projects.map((project) => [project.id, project]));
-    const conversationResult = await cgptFetchAllConversations(requestContext, projectIndex);
-    endpointTried.push(...conversationResult.endpointTried);
+    let conversationResult = null;
+    let conversationDiagnostics = null;
+    try {
+      conversationResult = await cgptFetchAllConversations(requestContext, projectIndex);
+      endpointTried.push(...conversationResult.endpointTried);
+    } catch (conversationError) {
+      conversationDiagnostics = {
+        phase: String((conversationError && conversationError.phase) || "conversations_fetch"),
+        authMode: requestContext.authMode || "cookie",
+        status: Number((conversationError && conversationError.status) || 0),
+        endpoint: String((conversationError && conversationError.endpoint) || ""),
+        message: String((conversationError && conversationError.message) || "api_conversations_fetch_failed"),
+        endpointTried: Array.isArray(conversationError && conversationError.endpointTried)
+          ? conversationError.endpointTried
+          : [],
+      };
+      endpointTried.push(...conversationDiagnostics.endpointTried);
+    }
     const mergedConversations = cgptMergeNormalizedSidebarConversations(
       Array.isArray(projectResult.projectSeedConversations) ? projectResult.projectSeedConversations : [],
-      conversationResult.conversations
+      conversationResult && Array.isArray(conversationResult.conversations)
+        ? conversationResult.conversations
+        : []
     );
     return {
       ok: true,
@@ -1127,7 +1217,7 @@ async function cgptFetchSidebarApiSnapshot() {
         updatedAt: Date.now(),
         source: "internal_api",
         debugBuild: CGPT_SIDEBAR_API_DEBUG_BUILD,
-        diagnostics: null,
+        diagnostics: conversationDiagnostics,
         projectApiSweep: Array.isArray(projectResult.projectApiSweep)
           ? projectResult.projectApiSweep
           : [],
@@ -1154,6 +1244,7 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     addConversationToProject,
     archiveConversation,
+    createConversationShareLink,
     deleteConversation,
     renameConversation,
     cgptBuildSidebarApiRequestContext,
