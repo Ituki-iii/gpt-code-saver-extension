@@ -1,0 +1,198 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+function loadModule() {
+  delete require.cache[require.resolve("../../extension/content/sidebarBulkActions.js")];
+  return require("../../extension/content/sidebarBulkActions.js");
+}
+
+function installDocumentStub(buttons = []) {
+  global.document = {
+    querySelector(selector) {
+      if (selector === "[data-cgpt-open-project-create='1']") {
+        return null;
+      }
+      if (selector === "[data-cgpt-project-create='1']") {
+        return null;
+      }
+      return null;
+    },
+  };
+  global.cgptFindSidebarRoot = () => ({
+    querySelectorAll(selector) {
+      if (selector === "button, a, [role='button']") {
+        return buttons;
+      }
+      return [];
+    },
+  });
+}
+
+function cleanupDomStub() {
+  delete global.document;
+  delete global.cgptFindSidebarRoot;
+}
+
+test("cgptDidConversationReachProjectTarget matches by project id and fallback names", () => {
+  const { cgptDidConversationReachProjectTarget } = loadModule();
+  assert.equal(
+    cgptDidConversationReachProjectTarget(
+      { projectId: "proj-1", projectName: "Alpha" },
+      { projectId: "proj-1", projectName: "Project Alpha" }
+    ),
+    true
+  );
+  assert.equal(
+    cgptDidConversationReachProjectTarget(
+      { projectId: "", projectName: "project alpha" },
+      { projectId: "proj-1", projectName: "Project Alpha", projectOriginalName: "slug-alpha" }
+    ),
+    true
+  );
+  assert.equal(
+    cgptDidConversationReachProjectTarget(
+      { projectId: "proj-2", projectName: "Beta" },
+      { projectId: "proj-1", projectName: "Project Alpha" }
+    ),
+    false
+  );
+});
+
+test("cgptBuildSidebarConversationTitleUpdate composes prefix and suffix around the current title", () => {
+  const { cgptBuildSidebarConversationTitleUpdate } = loadModule();
+  const result = cgptBuildSidebarConversationTitleUpdate(
+    { title: "Roadmap" },
+    "[Done] ",
+    " v2"
+  );
+
+  assert.deepStrictEqual(result, {
+    currentTitle: "Roadmap",
+    nextTitle: "[Done] Roadmap v2",
+    changed: true,
+  });
+});
+
+test("cgptBuildSidebarConversationTitleUpdate marks unchanged titles as skipped candidates", () => {
+  const { cgptBuildSidebarConversationTitleUpdate } = loadModule();
+  const result = cgptBuildSidebarConversationTitleUpdate(
+    { title: "Roadmap" },
+    "",
+    ""
+  );
+
+  assert.deepStrictEqual(result, {
+    currentTitle: "Roadmap",
+    nextTitle: "Roadmap",
+    changed: false,
+  });
+});
+
+test("cgptOpenSidebarProjectCreationUi finds the sidebar create-project button outside labeled sections", async () => {
+  installDocumentStub([
+    {
+      textContent: "プロジェクトを新規作成",
+      getAttribute(name) {
+        return name === "href" ? "" : null;
+      },
+      clickCalled: false,
+      click() {
+        this.clickCalled = true;
+      },
+    },
+  ]);
+  try {
+    const { cgptOpenSidebarProjectCreationUi } = loadModule();
+    const opened = await cgptOpenSidebarProjectCreationUi();
+    assert.equal(opened, true);
+  } finally {
+    cleanupDomStub();
+  }
+});
+
+test("cgptFindProjectTargetOption ignores wrapper divs and returns the interactive option", () => {
+  const { cgptFindProjectTargetOption } = loadModule();
+  const interactiveOption = {
+    tagName: "BUTTON",
+    disabled: false,
+    dataset: {},
+    getAttribute(name) {
+      if (name === "role") return "button";
+      return "";
+    },
+    textContent: "PC管理",
+  };
+  const wrapperDiv = {
+    tagName: "DIV",
+    disabled: false,
+    dataset: {},
+    getAttribute(name) {
+      if (name === "role") return "";
+      if (name === "tabindex") return "";
+      return "";
+    },
+    textContent: "PC管理",
+  };
+  const root = {
+    querySelectorAll() {
+      return [wrapperDiv, interactiveOption];
+    },
+  };
+
+  const result = cgptFindProjectTargetOption(
+    { projectName: "PC管理", projectId: "g-p-1" },
+    root
+  );
+
+  assert.equal(result, interactiveOption);
+});
+
+test("project move debug snapshots capture stage, target, and errors", () => {
+  const {
+    cgptCaptureProjectMoveDebugSnapshot,
+    cgptClearSidebarProjectMoveDebugLog,
+    cgptGetSidebarProjectMoveDebugLog,
+  } = loadModule();
+  global.document = {
+    querySelectorAll() {
+      return [];
+    },
+  };
+  global.cgptGetSidebarConversationSnapshot = () => ({
+    sidebarFound: true,
+    conversations: [{ id: "chat-1", title: "Myanmar" }],
+    projects: [{ id: "project-1", name: "Travel" }],
+    source: "unit",
+    debugBuild: "test",
+    updatedAt: 123,
+  });
+  try {
+    cgptClearSidebarProjectMoveDebugLog();
+    const index = cgptCaptureProjectMoveDebugSnapshot("verify_failed", {
+      conversation: {
+        id: "chat-1",
+        title: "Myanmar",
+        projectId: "",
+        projectName: "",
+      },
+      projectTarget: {
+        projectId: "project-1",
+        projectName: "Travel",
+      },
+      error: new Error("failed_project_move_not_verified"),
+    });
+    const log = cgptGetSidebarProjectMoveDebugLog();
+
+    assert.equal(index, 0);
+    assert.equal(log.length, 1);
+    assert.equal(log[0].stage, "verify_failed");
+    assert.equal(log[0].conversation.id, "chat-1");
+    assert.equal(log[0].projectTarget.projectId, "project-1");
+    assert.equal(log[0].error.message, "failed_project_move_not_verified");
+    assert.equal(log[0].snapshotSummary.conversationCount, 1);
+  } finally {
+    cgptClearSidebarProjectMoveDebugLog();
+    delete global.document;
+    delete global.cgptGetSidebarConversationSnapshot;
+  }
+});

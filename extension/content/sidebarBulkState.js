@@ -3,10 +3,15 @@ const cgptSidebarBulkState = {
   selectedConversationIds: new Set(),
   runningAction: "",
   lastResult: null,
+  titleBatchPrefix: "",
+  titleBatchSuffix: "",
+  showTitleBatchEditor: false,
   projectTarget: {
     mode: "existing",
     projectId: "",
     projectName: "",
+    projectOriginalName: "",
+    projectDetailName: "",
   },
   draftProjectName: "",
 };
@@ -21,6 +26,9 @@ function cgptCloneSidebarBulkState() {
     lastResult: cgptSidebarBulkState.lastResult
       ? JSON.parse(JSON.stringify(cgptSidebarBulkState.lastResult))
       : null,
+    titleBatchPrefix: cgptSidebarBulkState.titleBatchPrefix,
+    titleBatchSuffix: cgptSidebarBulkState.titleBatchSuffix,
+    showTitleBatchEditor: cgptSidebarBulkState.showTitleBatchEditor,
     projectTarget: { ...cgptSidebarBulkState.projectTarget },
     draftProjectName: cgptSidebarBulkState.draftProjectName,
   };
@@ -56,11 +64,28 @@ function cgptSetSidebarBulkResult(result) {
   cgptNotifySidebarBulkSubscribers();
 }
 
+function cgptSetSidebarBulkTitleBatchPrefix(prefix) {
+  cgptSidebarBulkState.titleBatchPrefix = String(prefix || "");
+  cgptNotifySidebarBulkSubscribers();
+}
+
+function cgptSetSidebarBulkTitleBatchSuffix(suffix) {
+  cgptSidebarBulkState.titleBatchSuffix = String(suffix || "");
+  cgptNotifySidebarBulkSubscribers();
+}
+
+function cgptSetSidebarBulkTitleBatchEditorVisible(visible) {
+  cgptSidebarBulkState.showTitleBatchEditor = visible === true;
+  cgptNotifySidebarBulkSubscribers();
+}
+
 function cgptSetSidebarBulkProjectTarget(nextTarget = {}) {
   cgptSidebarBulkState.projectTarget = {
     mode: nextTarget.mode === "create" ? "create" : "existing",
     projectId: String(nextTarget.projectId || ""),
     projectName: String(nextTarget.projectName || ""),
+    projectOriginalName: String(nextTarget.projectOriginalName || ""),
+    projectDetailName: String(nextTarget.projectDetailName || ""),
   };
   cgptNotifySidebarBulkSubscribers();
 }
@@ -117,7 +142,7 @@ function cgptIsSidebarConversationSelected(conversationId) {
 }
 
 function cgptPruneSidebarConversationSelection(conversations = [], options = {}) {
-  const { dropProjectItems = true } = options;
+  const { dropProjectItems = false } = options;
   const allowedKeys = new Set();
   (Array.isArray(conversations) ? conversations : []).forEach((conversation) => {
     const key = cgptGetSidebarConversationSelectionKey(conversation);
@@ -141,13 +166,19 @@ function cgptPruneSidebarConversationSelection(conversations = [], options = {})
 
 function cgptFilterSidebarConversations(conversations = [], query = "") {
   const normalizedQuery = String(query || "").trim().toLowerCase();
-  const visible = Array.isArray(conversations)
-    ? conversations.filter((conversation) => !conversation || conversation.isProjectItem !== true)
-    : [];
+  const visible = Array.isArray(conversations) ? conversations.slice() : [];
   if (!normalizedQuery) return visible;
   return visible.filter((conversation) => {
     const title = String((conversation && conversation.title) || "").toLowerCase();
-    return title.includes(normalizedQuery);
+    const projectName = String((conversation && conversation.projectName) || "").toLowerCase();
+    const conversationId = String(
+      (conversation && (conversation.conversationId || conversation.id)) || ""
+    ).toLowerCase();
+    return (
+      title.includes(normalizedQuery) ||
+      projectName.includes(normalizedQuery) ||
+      conversationId.includes(normalizedQuery)
+    );
   });
 }
 
@@ -156,16 +187,16 @@ function cgptSummarizeSidebarSelection(conversations = [], selectedConversationI
   (Array.isArray(conversations) ? conversations : []).forEach((conversation) => {
     conversationMap.set(cgptGetSidebarConversationSelectionKey(conversation), conversation);
   });
-  let eligibleSelectedCount = 0;
-  Array.from(selectedConversationIds || []).forEach((id) => {
-    const conversation = conversationMap.get(String(id || ""));
-    if (conversation && conversation.isProjectItem !== true) {
-      eligibleSelectedCount += 1;
+  let projectCount = 0;
+  (Array.isArray(conversations) ? conversations : []).forEach((conversation) => {
+    if (conversation && conversation.isProjectItem === true) {
+      projectCount += 1;
     }
   });
   return {
     selectedCount: Array.from(selectedConversationIds || []).filter(Boolean).length,
-    eligibleSelectedCount,
+    projectCount,
+    totalCount: conversationMap.size,
   };
 }
 
@@ -185,5 +216,8 @@ if (typeof module !== "undefined" && module.exports) {
     cgptGetSidebarConversationSelectionKey,
     cgptPruneSidebarConversationSelection,
     cgptSummarizeSidebarSelection,
+    cgptSetSidebarBulkTitleBatchEditorVisible,
+    cgptSetSidebarBulkTitleBatchPrefix,
+    cgptSetSidebarBulkTitleBatchSuffix,
   };
 }

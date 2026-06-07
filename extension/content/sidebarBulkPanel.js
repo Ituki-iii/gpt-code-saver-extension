@@ -48,8 +48,8 @@ function cgptCreateSidebarBulkPanel() {
   panel.style.display = "flex";
   panel.style.flexDirection = "column";
   panel.style.gap = "8px";
-  panel.style.width = "min(520px, calc(100vw - 48px))";
-  panel.style.maxWidth = "520px";
+  panel.style.width = "min(540px, calc(100vw - 48px))";
+  panel.style.maxWidth = "540px";
   panel.style.height = "min(620px, calc(100vh - 112px))";
   panel.style.maxHeight = "calc(100vh - 112px)";
   panel.style.overflow = "hidden";
@@ -110,8 +110,11 @@ function cgptCreateSidebarBulkPanel() {
         conversationCount: Array.isArray(snapshot.conversations) ? snapshot.conversations.length : 0,
         projectCount: Array.isArray(snapshot.projects) ? snapshot.projects.length : 0,
         source: snapshot.source || "",
+        debugBuild: snapshot.debugBuild || "",
         updatedAt: snapshot.updatedAt || 0,
       },
+      projectApiSweep: snapshot.projectApiSweep || null,
+      projectIframeSweep: snapshot.projectIframeSweep || null,
       projects: Array.isArray(snapshot.projects)
         ? snapshot.projects.map((project) => ({
             id: project && project.id ? String(project.id) : "",
@@ -146,6 +149,65 @@ function cgptCreateSidebarBulkPanel() {
     );
   });
   header.appendChild(debugButton);
+
+  const moveDebugButton = createPanelButton("Move Debug", "secondary");
+  moveDebugButton.id = "cgpt-helper-sidebar-bulk-move-debug";
+  moveDebugButton.addEventListener("click", async () => {
+    const snapshot =
+      typeof cgptGetSidebarConversationSnapshot === "function"
+        ? cgptGetSidebarConversationSnapshot()
+        : { sidebarFound: false, conversations: [], projects: [] };
+    const state = typeof cgptGetSidebarBulkState === "function" ? cgptGetSidebarBulkState() : null;
+    const payload = {
+      timestamp: new Date().toISOString(),
+      phase: "project_move_debug",
+      snapshotSummary: {
+        sidebarFound: Boolean(snapshot.sidebarFound),
+        conversationCount: Array.isArray(snapshot.conversations) ? snapshot.conversations.length : 0,
+        projectCount: Array.isArray(snapshot.projects) ? snapshot.projects.length : 0,
+        source: snapshot.source || "",
+        debugBuild: snapshot.debugBuild || "",
+        updatedAt: snapshot.updatedAt || 0,
+      },
+      lastResult: state && state.lastResult ? state.lastResult : null,
+      projectMoveDebugLog:
+        typeof cgptGetSidebarProjectMoveDebugLog === "function"
+          ? cgptGetSidebarProjectMoveDebugLog()
+          : [],
+      projects: Array.isArray(snapshot.projects)
+        ? snapshot.projects.map((project) => ({
+            id: project && project.id ? String(project.id) : "",
+            name: project && project.name ? String(project.name) : "",
+            isCurrent: Boolean(project && project.isCurrent),
+            raw: project && project.raw ? project.raw : null,
+          }))
+        : [],
+      conversations: Array.isArray(snapshot.conversations)
+        ? snapshot.conversations.map((conversation) => ({
+            id: conversation && conversation.id ? String(conversation.id) : "",
+            title: conversation && conversation.title ? String(conversation.title) : "",
+            projectId: conversation && conversation.projectId ? String(conversation.projectId) : "",
+            projectName: conversation && conversation.projectName ? String(conversation.projectName) : "",
+            isProjectItem: Boolean(conversation && conversation.isProjectItem),
+          }))
+        : [],
+    };
+    const copied =
+      typeof cgptCopySidebarApiDebugJson === "function" &&
+      await cgptCopySidebarApiDebugJson(payload);
+    if (copied) {
+      showToast("Move debug copied to clipboard.", "success");
+      return;
+    }
+    const exported =
+      typeof cgptDownloadSidebarApiDebugJson === "function" &&
+      cgptDownloadSidebarApiDebugJson(payload);
+    showToast(
+      exported ? "Move debug downloaded." : "Move debug export failed.",
+      exported ? "success" : "error"
+    );
+  });
+  header.appendChild(moveDebugButton);
 
   const hideButton = createPanelButton("Hide", "ghost");
   hideButton.addEventListener("click", () => cgptCloseSidebarBulkPanel());
@@ -225,7 +287,7 @@ function cgptCreateSidebarBulkPanel() {
   const input = document.createElement("input");
   input.id = "cgpt-helper-sidebar-bulk-search";
   input.type = "search";
-  input.placeholder = "Filter by title";
+  input.placeholder = "Filter by title / project / id";
   input.style.flex = "1";
   input.style.minWidth = "0";
   input.style.minHeight = "30px";
@@ -248,6 +310,13 @@ function cgptCreateSidebarBulkPanel() {
   inlineSelectionControls.style.flexShrink = "0";
   filterRow.appendChild(inlineSelectionControls);
   panel.appendChild(filterRow);
+
+  const titleBatchControls = document.createElement("div");
+  titleBatchControls.id = "cgpt-helper-sidebar-bulk-title-batch-controls";
+  titleBatchControls.style.display = "flex";
+  titleBatchControls.style.flexDirection = "column";
+  titleBatchControls.style.gap = "6px";
+  panel.appendChild(titleBatchControls);
 
   const list = document.createElement("div");
   list.id = "cgpt-helper-sidebar-bulk-list";
@@ -329,6 +398,8 @@ async function cgptHandleOpenSidebarProjectCreation() {
       mode: "existing",
       projectId: state.projectTarget ? state.projectTarget.projectId : "",
       projectName: state.projectTarget ? state.projectTarget.projectName : "",
+      projectOriginalName: state.projectTarget ? state.projectTarget.projectOriginalName : "",
+      projectDetailName: state.projectTarget ? state.projectTarget.projectDetailName : "",
     });
   }
   const opened = typeof cgptOpenSidebarProjectCreationUi === "function"
@@ -379,7 +450,6 @@ async function cgptHandleSidebarConversationRename(conversation) {
 function cgptSyncSidebarBulkSelectionSummary(panel, snapshot, state) {
   if (!panel) return;
   const visibleConversations = cgptFilterSidebarConversations(snapshot.conversations, state.query);
-  const excludedCount = (snapshot.conversations || []).filter((conversation) => conversation.isProjectItem).length;
   const selectionSummary = cgptSummarizeSidebarSelection(
     snapshot.conversations,
     state.selectedConversationIds
@@ -395,7 +465,7 @@ function cgptSyncSidebarBulkSelectionSummary(panel, snapshot, state) {
     summary.textContent = isLoading
       ? "Loading ChatGPT internal API..."
       : snapshot.sidebarFound
-      ? `Visible ${snapshot.conversations.length} / Filtered ${visibleConversations.length} / Selected ${selectionSummary.selectedCount} / Excluded ${excludedCount}`
+      ? `Visible ${selectionSummary.totalCount} / Filtered ${visibleConversations.length} / Selected ${selectionSummary.selectedCount} / Project ${selectionSummary.projectCount}`
       : `Internal API unavailable${diagnostics ? ` / ${diagnostics.phase} / ${diagnostics.message}` : ""}`;
   }
 }
@@ -460,6 +530,8 @@ async function cgptHandleSidebarBulkAction(action) {
         mode: "existing",
         projectId: selectedProject.id,
         projectName: selectedProject.name,
+        projectOriginalName: selectedProject.raw ? selectedProject.raw.originalName : "",
+        projectDetailName: selectedProject.raw ? selectedProject.raw.detailName : "",
       });
       state = typeof cgptGetSidebarBulkState === "function" ? cgptGetSidebarBulkState() : state;
     }
@@ -493,9 +565,53 @@ async function cgptHandleSidebarBulkAction(action) {
       typeof cgptPruneSidebarConversationSelection === "function"
     ) {
       const refreshedSnapshot = cgptGetSidebarConversationSnapshot();
-      cgptPruneSidebarConversationSelection(refreshedSnapshot.conversations, {
-        dropProjectItems: action === "project" || action === "archive" || action === "delete",
-      });
+      cgptPruneSidebarConversationSelection(refreshedSnapshot.conversations);
+    }
+    cgptRenderSidebarBulkPanel();
+  }
+}
+
+async function cgptHandleSidebarBulkTitleUpdate() {
+  const state = typeof cgptGetSidebarBulkState === "function" ? cgptGetSidebarBulkState() : null;
+  if (!state || !state.selectedConversationIds || state.selectedConversationIds.size === 0) {
+    showToast("No chats selected.", "error");
+    return;
+  }
+  if (typeof cgptSetSidebarBulkRunningAction === "function") {
+    cgptSetSidebarBulkRunningAction("titleBatch");
+  }
+  try {
+    const result =
+      typeof cgptRunSidebarBulkTitleUpdate === "function"
+        ? await cgptRunSidebarBulkTitleUpdate({
+            conversationIds: Array.from(state.selectedConversationIds),
+            prefix: state.titleBatchPrefix,
+            suffix: state.titleBatchSuffix,
+          })
+        : null;
+    if (typeof cgptSetSidebarBulkResult === "function") {
+      cgptSetSidebarBulkResult(result);
+    }
+    if (result) {
+      const tone = result.counts.failed > 0 ? "error" : "success";
+      showToast(
+        `titleBatch: ${result.counts.success} success, ${result.counts.failed} failed, ${result.counts.skipped} skipped`,
+        tone
+      );
+      if (
+        typeof cgptSetSidebarBulkTitleBatchEditorVisible === "function" &&
+        result.counts.success > 0 &&
+        result.counts.failed === 0
+      ) {
+        cgptSetSidebarBulkTitleBatchEditorVisible(false);
+      }
+    }
+  } finally {
+    if (typeof cgptSetSidebarBulkRunningAction === "function") {
+      cgptSetSidebarBulkRunningAction("");
+    }
+    if (typeof cgptRefreshSidebarConversationSnapshot === "function") {
+      cgptRefreshSidebarConversationSnapshot(document);
     }
     cgptRenderSidebarBulkPanel();
   }
@@ -512,15 +628,18 @@ function cgptRenderSidebarBulkProjectControls(panel, snapshot, state) {
     host.replaceChildren();
     row = document.createElement("div");
     row.dataset.cgptProjectControlsRow = "1";
-    row.style.display = "flex";
-    row.style.flexDirection = "row";
-    row.style.gap = "6px";
-    row.style.alignItems = "center";
+  row.style.display = "flex";
+  row.style.flexDirection = "row";
+  row.style.gap = "6px";
+  row.style.alignItems = "center";
+  row.style.flexWrap = "wrap";
 
     select = document.createElement("select");
     select.id = "cgpt-helper-sidebar-bulk-project-select";
     select.style.flex = "1";
+    select.style.minWidth = "180px";
     select.style.minHeight = "30px";
+    select.style.boxSizing = "border-box";
     select.style.borderRadius = "8px";
     select.style.padding = "0 8px";
     if (typeof cgptApplyPanelInputStyle === "function") {
@@ -537,6 +656,8 @@ function cgptRenderSidebarBulkProjectControls(panel, snapshot, state) {
           mode: "existing",
           projectId: project ? project.id : "",
           projectName: project ? project.name : "",
+          projectOriginalName: project && project.raw ? project.raw.originalName : "",
+          projectDetailName: project && project.raw ? project.raw.detailName : "",
         });
       }
     });
@@ -544,6 +665,8 @@ function cgptRenderSidebarBulkProjectControls(panel, snapshot, state) {
 
     newButton = createPanelButton("+ New Project", "secondary");
     newButton.id = "cgpt-helper-sidebar-bulk-project-toggle";
+    newButton.style.flexShrink = "0";
+    newButton.style.whiteSpace = "nowrap";
     newButton.addEventListener("click", () => {
       cgptHandleOpenSidebarProjectCreation();
     });
@@ -579,6 +702,8 @@ function cgptRenderSidebarBulkControls(panel, visibleConversations, state) {
   selectionControls.replaceChildren();
   actionControls.replaceChildren();
   selectionSection.style.display = "none";
+  selectionControls.style.flexWrap = "wrap";
+  actionControls.style.flexWrap = "wrap";
   selectionControls.appendChild(
     cgptSidebarBulkCreateControlButton("Select All", "secondary", () => {
       cgptAddVisibleSidebarConversationSelections(
@@ -615,6 +740,135 @@ function cgptRenderSidebarBulkControls(panel, visibleConversations, state) {
   });
 }
 
+function cgptRenderSidebarBulkTitleBatchControls(panel, state) {
+  const host = panel.querySelector("#cgpt-helper-sidebar-bulk-title-batch-controls");
+  if (!host) return;
+  host.replaceChildren();
+  if (!state.showTitleBatchEditor) {
+    const section = document.createElement("div");
+    section.style.display = "flex";
+    section.style.flexDirection = "column";
+    section.style.gap = "6px";
+    section.style.padding = "8px";
+    section.style.borderRadius = "10px";
+    section.style.boxSizing = "border-box";
+    if (typeof cgptApplySurfaceStyle === "function") {
+      cgptApplySurfaceStyle(section, "subtle");
+    }
+    const openButton = createPanelButton("Bulk Rename", "secondary");
+    openButton.disabled = state.runningAction !== "";
+    openButton.style.width = "100%";
+    openButton.style.boxSizing = "border-box";
+    openButton.addEventListener("click", () => {
+      if (typeof cgptSetSidebarBulkTitleBatchEditorVisible === "function") {
+        cgptSetSidebarBulkTitleBatchEditorVisible(true);
+      }
+    });
+    section.appendChild(openButton);
+    host.appendChild(section);
+    return;
+  }
+
+  const section = document.createElement("div");
+  section.style.display = "flex";
+  section.style.flexDirection = "column";
+  section.style.gap = "6px";
+  section.style.padding = "8px";
+  section.style.boxSizing = "border-box";
+  section.style.borderRadius = "10px";
+  if (typeof cgptApplySurfaceStyle === "function") {
+    cgptApplySurfaceStyle(section, "subtle");
+  }
+
+  const header = document.createElement("div");
+  header.style.display = "flex";
+  header.style.alignItems = "center";
+  header.style.gap = "6px";
+  header.style.flexWrap = "wrap";
+
+  const label = document.createElement("div");
+  label.textContent = "Bulk Rename";
+  label.style.fontSize = "11px";
+  label.style.fontWeight = "700";
+  label.style.flex = "1";
+  if (typeof cgptApplyPanelTextTone === "function") {
+    cgptApplyPanelTextTone(label, "secondary");
+  }
+  header.appendChild(label);
+
+  const cancelButton = createPanelButton("Close", "ghost");
+  cancelButton.disabled = state.runningAction !== "";
+  cancelButton.addEventListener("click", () => {
+    if (typeof cgptSetSidebarBulkTitleBatchEditorVisible === "function") {
+      cgptSetSidebarBulkTitleBatchEditorVisible(false);
+    }
+  });
+  header.appendChild(cancelButton);
+  section.appendChild(header);
+
+  const row = document.createElement("div");
+  row.style.display = "flex";
+  row.style.gap = "6px";
+  row.style.alignItems = "center";
+  row.style.flexWrap = "wrap";
+
+  const prefixInput = document.createElement("input");
+  prefixInput.type = "text";
+  prefixInput.placeholder = "Prefix";
+  prefixInput.value = state.titleBatchPrefix || "";
+  prefixInput.disabled = state.runningAction !== "";
+  prefixInput.style.flex = "1";
+  prefixInput.style.minWidth = "0";
+  prefixInput.style.width = "0";
+  prefixInput.style.minHeight = "30px";
+  prefixInput.style.boxSizing = "border-box";
+  prefixInput.style.padding = "6px 10px";
+  prefixInput.style.borderRadius = "8px";
+  if (typeof cgptApplyPanelInputStyle === "function") {
+    cgptApplyPanelInputStyle(prefixInput);
+  }
+  prefixInput.addEventListener("input", (event) => {
+    if (typeof cgptSetSidebarBulkTitleBatchPrefix === "function") {
+      cgptSetSidebarBulkTitleBatchPrefix(event.target.value || "");
+    }
+  });
+  row.appendChild(prefixInput);
+
+  const suffixInput = document.createElement("input");
+  suffixInput.type = "text";
+  suffixInput.placeholder = "Suffix";
+  suffixInput.value = state.titleBatchSuffix || "";
+  suffixInput.disabled = state.runningAction !== "";
+  suffixInput.style.flex = "1";
+  suffixInput.style.minWidth = "0";
+  suffixInput.style.width = "0";
+  suffixInput.style.minHeight = "30px";
+  suffixInput.style.boxSizing = "border-box";
+  suffixInput.style.padding = "6px 10px";
+  suffixInput.style.borderRadius = "8px";
+  if (typeof cgptApplyPanelInputStyle === "function") {
+    cgptApplyPanelInputStyle(suffixInput);
+  }
+  suffixInput.addEventListener("input", (event) => {
+    if (typeof cgptSetSidebarBulkTitleBatchSuffix === "function") {
+      cgptSetSidebarBulkTitleBatchSuffix(event.target.value || "");
+    }
+  });
+  row.appendChild(suffixInput);
+
+  const applyButton = createPanelButton("Apply", "primary");
+  applyButton.disabled = state.runningAction !== "";
+  applyButton.style.flexShrink = "0";
+  applyButton.style.whiteSpace = "nowrap";
+  applyButton.addEventListener("click", () => {
+    cgptHandleSidebarBulkTitleUpdate();
+  });
+  row.appendChild(applyButton);
+
+  section.appendChild(row);
+  host.appendChild(section);
+}
+
 function cgptRenderSidebarBulkList(panel, visibleConversations, state) {
   const list = panel.querySelector("#cgpt-helper-sidebar-bulk-list");
   if (!list) return;
@@ -634,10 +888,12 @@ function cgptRenderSidebarBulkList(panel, visibleConversations, state) {
   }
   visibleConversations.forEach((conversation) => {
     const row = document.createElement("div");
-    row.style.display = "flex";
+    row.style.display = "grid";
+    row.style.gridTemplateColumns = "18px minmax(0, 1fr) 150px";
     row.style.gap = "8px";
     row.style.alignItems = "center";
-    row.style.padding = "4px 0";
+    row.style.padding = "6px 0";
+    row.style.minWidth = "0";
     row.style.cursor = state.runningAction !== "" ? "default" : "pointer";
     row.style.borderBottom = "1px solid rgba(203, 213, 225, 0.55)";
 
@@ -658,23 +914,24 @@ function cgptRenderSidebarBulkList(panel, visibleConversations, state) {
 
     const content = document.createElement("div");
     content.style.display = "flex";
-    content.style.alignItems = "baseline";
-    content.style.gap = "8px";
+    content.style.flexDirection = "column";
+    content.style.gap = "2px";
     content.style.minWidth = "0";
-    content.style.flex = "1";
+    content.style.alignSelf = "stretch";
 
     const titleRow = document.createElement("div");
-    titleRow.style.display = "flex";
+    titleRow.style.display = "grid";
+    titleRow.style.gridTemplateColumns = "minmax(0, 1fr) auto";
     titleRow.style.alignItems = "baseline";
     titleRow.style.gap = "4px";
     titleRow.style.minWidth = "0";
-    titleRow.style.flex = "0 1 auto";
+    titleRow.style.width = "100%";
 
     const title = document.createElement("div");
     title.textContent = conversation.title || "(untitled chat)";
     title.style.fontWeight = "600";
     title.style.minWidth = "0";
-    title.style.flex = "0 1 auto";
+    title.style.flex = "1";
     title.style.display = "inline-block";
     title.style.maxWidth = "100%";
     title.style.whiteSpace = "nowrap";
@@ -721,22 +978,70 @@ function cgptRenderSidebarBulkList(panel, visibleConversations, state) {
     titleRow.appendChild(renameButton);
     content.appendChild(titleRow);
 
-    const meta = document.createElement("div");
-    meta.textContent = conversation.isActive ? "Current chat" : conversation.conversationId || conversation.id;
-    meta.title = meta.textContent;
-    meta.style.fontSize = "11px";
-    meta.style.whiteSpace = "nowrap";
-    meta.style.flexShrink = "0";
+    const projectMeta = document.createElement("div");
+    projectMeta.textContent = conversation.projectName ? `Project: ${conversation.projectName}` : "";
+    projectMeta.title = projectMeta.textContent;
+    projectMeta.style.fontSize = "11px";
+    projectMeta.style.whiteSpace = "nowrap";
+    projectMeta.style.overflow = "hidden";
+    projectMeta.style.textOverflow = "ellipsis";
     if (typeof cgptApplyPanelTextTone === "function") {
-      cgptApplyPanelTextTone(meta, "muted");
+      cgptApplyPanelTextTone(projectMeta, "muted");
     }
-    content.appendChild(meta);
+    if (projectMeta.textContent) {
+      content.appendChild(projectMeta);
+    }
+
+    const metaColumn = document.createElement("div");
+    metaColumn.style.display = "flex";
+    metaColumn.style.flexDirection = "column";
+    metaColumn.style.alignItems = "flex-end";
+    metaColumn.style.justifyContent = "center";
+    metaColumn.style.textAlign = "right";
+    metaColumn.style.width = "150px";
+    metaColumn.style.minWidth = "150px";
+    metaColumn.style.maxWidth = "150px";
+    metaColumn.style.gap = "2px";
+    metaColumn.style.minWidth = "0";
+
+    const idMeta = document.createElement("div");
+    idMeta.textContent = conversation.conversationId || conversation.id;
+    idMeta.title = idMeta.textContent;
+    idMeta.style.fontSize = "11px";
+    idMeta.style.whiteSpace = "nowrap";
+    idMeta.style.overflow = "hidden";
+    idMeta.style.textOverflow = "ellipsis";
+    idMeta.style.maxWidth = "100%";
+    if (typeof cgptApplyPanelTextTone === "function") {
+      cgptApplyPanelTextTone(idMeta, "muted");
+    }
+    metaColumn.appendChild(idMeta);
+
+    const statusMeta = document.createElement("div");
+    statusMeta.textContent = conversation.isActive
+      ? "Current chat"
+      : conversation.projectName
+      ? `Project: ${conversation.projectName}`
+      : "";
+    statusMeta.title = statusMeta.textContent;
+    statusMeta.style.fontSize = "11px";
+    statusMeta.style.whiteSpace = "nowrap";
+    statusMeta.style.overflow = "hidden";
+    statusMeta.style.textOverflow = "ellipsis";
+    statusMeta.style.maxWidth = "100%";
+    if (typeof cgptApplyPanelTextTone === "function") {
+      cgptApplyPanelTextTone(statusMeta, "muted");
+    }
+    if (statusMeta.textContent) {
+      metaColumn.appendChild(statusMeta);
+    }
     if (state.runningAction === "") {
       row.addEventListener("click", () => {
         cgptToggleSidebarBulkConversationSelection(selectionKey, checkbox);
       });
     }
     row.appendChild(content);
+    row.appendChild(metaColumn);
     list.appendChild(row);
   });
   const lastRow = list.lastElementChild;
@@ -791,7 +1096,9 @@ function cgptRenderSidebarBulkResults(panel, state) {
     .slice(0, 6)
     .forEach((item) => {
       const line = document.createElement("div");
-      line.textContent = `${item.title || item.conversationId || "unknown"}: ${item.status}`;
+      line.textContent = `${item.title || item.conversationId || "unknown"}: ${item.status}${
+        Number.isInteger(item.moveDebugIndex) && item.moveDebugIndex >= 0 ? " (Move Debug available)" : ""
+      }`;
       line.style.fontSize = "11px";
       if (typeof cgptApplyPanelTextTone === "function") {
         cgptApplyPanelTextTone(line, "muted");
@@ -820,6 +1127,7 @@ function cgptRenderSidebarBulkPanel() {
 
   cgptRenderSidebarBulkControls(panel, visibleConversations, state);
   cgptRenderSidebarBulkProjectControls(panel, snapshot, state);
+  cgptRenderSidebarBulkTitleBatchControls(panel, state);
   cgptRenderSidebarBulkList(panel, visibleConversations, state);
   cgptRenderSidebarBulkResults(panel, state);
 }

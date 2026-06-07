@@ -231,6 +231,29 @@ npm run test:e2e:live
 
 ## 開発補助ツール
 
+### ChatGPT 実サイトを先に参照する
+
+ChatGPT の DOM に依存する改修では、fixture や実装を直す前に実サイトの状態を Playwright で確認します。
+特に Sidebar Bulk Chats、Chat Log、code block、share dialog、Project move は UI 変更の影響を受けやすいため、該当 feature の成果物 JSON を見てから selector や fixture を更新してください。
+
+```bash
+npm run inspect:chatgpt:anonymous
+CGPT_INSPECT_TARGET=sidebar npm run inspect:chatgpt:feature
+CGPT_INSPECT_TARGET=chatlog npm run inspect:chatgpt:profile
+```
+
+主な出力先:
+
+- `tests/artifacts/live-chatgpt-inspect/<target-mode-timestamp>/page.png`
+- `tests/artifacts/live-chatgpt-inspect/<target-mode-timestamp>/page-state.json`
+- `tests/artifacts/live-chatgpt-inspect/<target-mode-timestamp>/dom-summary.json`
+- `tests/artifacts/live-chatgpt-inspect/<target-mode-timestamp>/candidate-elements.json`
+- `tests/artifacts/live-chatgpt-inspect/<target-mode-timestamp>/open-containers.json`
+
+実サイト由来の HTML やスクリーンショットは `tests/artifacts/` に留め、コミットしません。
+fixture に反映する場合は、テストに必要な最小 DOM だけを取り込みます。
+詳しい運用は [LIVE_SITE_INSPECTION.md](docs/misc/LIVE_SITE_INSPECTION.md) を参照してください。
+
 ### ChatGPT Share URL から素材を取得する
 
 共有 URL から HTML、スクリーンショット、CSS、先頭コードブロックなどを保存できます。

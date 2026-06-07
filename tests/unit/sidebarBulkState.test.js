@@ -6,12 +6,12 @@ function loadModule() {
   return require("../../extension/content/sidebarBulkState.js");
 }
 
-test("cgptFilterSidebarConversations excludes project items and matches titles case-insensitively", () => {
+test("cgptFilterSidebarConversations includes project items and matches title/project/id case-insensitively", () => {
   const { cgptFilterSidebarConversations } = loadModule();
   const conversations = [
     { id: "a", title: "Alpha planning", isProjectItem: false },
     { id: "b", title: "Beta Migration", isProjectItem: false },
-    { id: "c", title: "Project task", isProjectItem: true },
+    { id: "c", conversationId: "chat-project-1", title: "Project task", isProjectItem: true, projectName: "Project Alpha" },
   ];
 
   assert.deepStrictEqual(
@@ -19,12 +19,20 @@ test("cgptFilterSidebarConversations excludes project items and matches titles c
     ["b"]
   );
   assert.deepStrictEqual(
+    cgptFilterSidebarConversations(conversations, "alpha").map((item) => item.id),
+    ["a", "c"]
+  );
+  assert.deepStrictEqual(
+    cgptFilterSidebarConversations(conversations, "chat-project-1").map((item) => item.id),
+    ["c"]
+  );
+  assert.deepStrictEqual(
     cgptFilterSidebarConversations(conversations, "").map((item) => item.id),
-    ["a", "b"]
+    ["a", "b", "c"]
   );
 });
 
-test("cgptSummarizeSidebarSelection keeps hidden selections counted while excluding project items from eligible count", () => {
+test("cgptSummarizeSidebarSelection returns selected, total, and project counts", () => {
   const { cgptSummarizeSidebarSelection } = loadModule();
   const summary = cgptSummarizeSidebarSelection(
     [
@@ -37,6 +45,7 @@ test("cgptSummarizeSidebarSelection keeps hidden selections counted while exclud
 
   assert.deepStrictEqual(summary, {
     selectedCount: 3,
-    eligibleSelectedCount: 2,
+    projectCount: 1,
+    totalCount: 3,
   });
 });

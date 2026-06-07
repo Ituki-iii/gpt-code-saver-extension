@@ -6,6 +6,18 @@ function loadModule() {
   return require("../../extension/content/sidebarConversationTracker.js");
 }
 
+function installWindowStub(href = "https://chatgpt.com/") {
+  global.window = {
+    location: {
+      href,
+    },
+  };
+}
+
+function cleanupWindowStub() {
+  delete global.window;
+}
+
 function createAnchor({ href, title, projectItem = false, active = false }) {
   const row = {
     dataset: {
@@ -42,6 +54,31 @@ test("cgptExtractConversationIdFromHref parses ChatGPT conversation URLs", () =>
   assert.equal(cgptExtractConversationIdFromHref("/c/alpha-123?model=gpt"), "alpha-123");
 });
 
+test("cgptGetCurrentProjectIdFromLocation parses the current project page URL", () => {
+  installWindowStub("https://chatgpt.com/g/g-p-1234567890abcdef/project");
+  try {
+    const { cgptGetCurrentProjectIdFromLocation } = loadModule();
+    assert.equal(cgptGetCurrentProjectIdFromLocation(), "g-p-1234567890abcdef");
+  } finally {
+    cleanupWindowStub();
+  }
+});
+
+test("cgptGetSidebarConversationRouteKey returns pathname and search", () => {
+  installWindowStub("https://chatgpt.com/g/g-p-1234567890abcdef/project?view=all");
+  global.window.location.pathname = "/g/g-p-1234567890abcdef/project";
+  global.window.location.search = "?view=all";
+  try {
+    const { cgptGetSidebarConversationRouteKey } = loadModule();
+    assert.equal(
+      cgptGetSidebarConversationRouteKey(),
+      "/g/g-p-1234567890abcdef/project?view=all"
+    );
+  } finally {
+    cleanupWindowStub();
+  }
+});
+
 test("cgptCollectSidebarConversations marks project items based on row metadata", () => {
   const { cgptCollectSidebarConversations } = loadModule();
   const anchors = [
@@ -61,6 +98,7 @@ test("cgptCollectSidebarConversations marks project items based on row metadata"
 });
 
 test("cgptMergeSidebarApiSnapshotWithDom prefers visible sidebar titles over API titles", () => {
+  installWindowStub("https://chatgpt.com/");
   const { cgptMergeSidebarApiSnapshotWithDom } = loadModule();
   const anchors = [
     createAnchor({ href: "/c/alpha", title: "Visible Alpha Title", active: true }),
@@ -83,6 +121,109 @@ test("cgptMergeSidebarApiSnapshotWithDom prefers visible sidebar titles over API
   assert.equal(merged.conversations[0].title, "Visible Alpha Title");
   assert.equal(merged.conversations[0].isActive, true);
   assert.equal(merged.conversations[1].title, "API Gamma Title");
+  cleanupWindowStub();
+});
+
+test("cgptMergeSidebarApiSnapshotWithDom appends current project page conversations missing from the API snapshot", () => {
+  installWindowStub("https://chatgpt.com/g/g-p-proj-1/project");
+  try {
+    const { cgptMergeSidebarApiSnapshotWithDom } = loadModule();
+    const projectAnchor = {
+      dataset: {
+        cgptConversationTitle: "SSD認識不良対処法",
+      },
+      getAttribute: (name) => {
+        if (name === "href") return "/c/project-chat-1";
+        if (name === "aria-current") return "";
+        return "";
+      },
+      textContent: "SSD認識不良対処法",
+      closest: (selector) => {
+        if (selector.includes("cgpt-helper")) return null;
+        if (selector.includes("aside") || selector.includes("nav")) return null;
+        return {
+          dataset: {},
+          closest: () => null,
+        };
+      },
+    };
+    const root = {
+      querySelector: (selector) => {
+        if (selector === "[data-cgpt-sidebar-root='1']") return null;
+        if (selector === "main h1" || selector === "h1") {
+          return { textContent: "PC管理" };
+        }
+        return null;
+      },
+      querySelectorAll: (selector) => {
+        if (selector === "aside, nav, [role='navigation']") return [];
+        if (selector === "a[href*='/c/']") return [projectAnchor];
+        return [];
+      },
+    };
+    const snapshot = {
+      sidebarFound: true,
+      conversations: [],
+      projects: [{ id: "g-p-proj-1", name: "PC管理" }],
+    };
+
+    const merged = cgptMergeSidebarApiSnapshotWithDom(snapshot, root);
+    assert.equal(merged.conversations.length, 1);
+    assert.equal(merged.conversations[0].conversationId, "project-chat-1");
+    assert.equal(merged.conversations[0].projectId, "g-p-proj-1");
+    assert.equal(merged.conversations[0].projectName, "PC管理");
+    assert.equal(merged.conversations[0].isProjectItem, true);
+  } finally {
+    cleanupWindowStub();
+  }
+});
+
+test("cgptCollectProjectPageConversationsFromRoot collects non-sidebar project chats with explicit project context", () => {
+  const { cgptCollectProjectPageConversationsFromRoot } = loadModule();
+  const projectAnchor = {
+    dataset: {
+      cgptConversationTitle: "Hidden Project Chat",
+    },
+    getAttribute: (name) => {
+      if (name === "href") return "/c/project-chat-2";
+      if (name === "aria-current") return "";
+      return "";
+    },
+    textContent: "Hidden Project Chat",
+    closest: () => ({ dataset: {} }),
+  };
+  const root = {
+    querySelector: (selector) => (selector === "[data-cgpt-sidebar-root='1']" ? null : null),
+    querySelectorAll: (selector) => (selector === "a[href*='/c/']" ? [projectAnchor] : []),
+  };
+
+  const result = cgptCollectProjectPageConversationsFromRoot(root, {
+    id: "proj-1",
+    name: "Project Alpha",
+  });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].conversationId, "project-chat-2");
+  assert.equal(result[0].projectId, "proj-1");
+  assert.equal(result[0].projectName, "Project Alpha");
+});
+
+test("cgptHasProjectConversationCoverage matches project ids and slug-like raw ids", () => {
+  const { cgptHasProjectConversationCoverage } = loadModule();
+  const snapshot = {
+    conversations: [
+      {
+        conversationId: "chat-1",
+        projectId: "g-p-6918056b91988191834393b16852c030-jian-korehuan-jing",
+      },
+    ],
+  };
+  const covered = cgptHasProjectConversationCoverage(snapshot, {
+    id: "g-p-6918056b91988191834393b16852c030",
+    raw: {
+      originalName: "g-p-6918056b91988191834393b16852c030-jian-korehuan-jing",
+    },
+  });
+  assert.equal(covered, true);
 });
 
 test("cgptMergeSidebarApiProjectsWithDom prefers visible sidebar project names", () => {

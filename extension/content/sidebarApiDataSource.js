@@ -1,3 +1,5 @@
+const CGPT_SIDEBAR_API_DEBUG_BUILD = "project-api-sweep-v2";
+
 const CGPT_SIDEBAR_API_ENDPOINTS = {
   session: [
     "/api/auth/session",
@@ -5,6 +7,9 @@ const CGPT_SIDEBAR_API_ENDPOINTS = {
     "/backend-api/me",
   ],
   projects: [
+    "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=100",
+    "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=50",
+    "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=20",
     "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=5",
     "/backend-api/projects?limit=100&offset=0",
     "/backend-api/projects",
@@ -77,6 +82,39 @@ async function cgptSidebarApiFetchJson(url, requestContext = {}) {
     ok: response.ok,
     status: response.status,
     json,
+  };
+}
+
+function cgptSummarizeSidebarApiPayload(payload) {
+  if (Array.isArray(payload)) {
+    return {
+      kind: "array",
+      length: payload.length,
+      keys: payload.length && payload[0] && typeof payload[0] === "object"
+        ? Object.keys(payload[0]).slice(0, 12)
+        : [],
+      message: "",
+    };
+  }
+  if (!payload || typeof payload !== "object") {
+    return {
+      kind: typeof payload,
+      length: 0,
+      keys: [],
+      message: "",
+    };
+  }
+  return {
+    kind: "object",
+    length: 0,
+    keys: Object.keys(payload).slice(0, 12),
+    message: cgptNormalizeSidebarApiText(
+      payload.message ||
+      payload.detail ||
+      payload.error ||
+      payload.description ||
+      ""
+    ),
   };
 }
 
@@ -251,24 +289,90 @@ function cgptBuildSidebarApiProjectDetailCandidates(projectId) {
   ];
 }
 
+function cgptBuildSidebarApiProjectConversationCandidates(project = {}) {
+  const raw = project && project.raw ? project.raw : {};
+  const routeCandidates = [
+    project && project.id,
+    raw.originalName,
+    raw.detailName,
+    project && project.name,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  const uniqueRouteCandidates = Array.from(new Set(routeCandidates));
+  if (!uniqueRouteCandidates.length) return [];
+  const suffixes = [
+    "/conversations?offset=0&limit=100&order=updated",
+    "/conversations?limit=100&offset=0",
+    "/conversations?offset=0&limit=100",
+    "/conversations?limit=100&order=updated",
+    "/conversations?limit=100",
+    "/conversations",
+  ];
+  const prefixes = [
+    "/backend-api/gizmos",
+    "/backend-api/projects",
+  ];
+  const candidates = [];
+  uniqueRouteCandidates.forEach((routeId) => {
+    const encodedId = encodeURIComponent(routeId);
+    prefixes.forEach((prefix) => {
+      suffixes.forEach((suffix) => {
+        candidates.push(`${prefix}/${encodedId}${suffix}`);
+      });
+    });
+  });
+  return Array.from(new Set(candidates));
+}
+
 async function cgptEnrichSidebarApiProjects(projects = [], requestContext = {}) {
   const enrichedProjects = [];
+  const detailPayloads = [];
+  const projectConversationPayloads = [];
+  const projectApiSweep = [];
   for (const project of Array.isArray(projects) ? projects : []) {
-    if (!project || !cgptIsSidebarApiProjectSlugName(project.name)) {
+    if (!project) {
       enrichedProjects.push(project);
       continue;
     }
     let enrichedProject = project;
     const detailCandidates = cgptBuildSidebarApiProjectDetailCandidates(project.id);
+    let detailPayload = null;
+    const detailTried = [];
     for (const candidate of detailCandidates) {
       const url = cgptResolveSidebarApiAbsoluteUrl(candidate);
       try {
         const result = await cgptSidebarApiFetchJson(url, requestContext);
+        const normalized = result.ok && result.json && typeof result.json === "object"
+          ? cgptNormalizeSidebarApiProject(result.json)
+          : null;
+        const nestedConversationCount = result.ok && result.json && typeof result.json === "object"
+          ? cgptExtractNormalizedProjectConversationsFromPayload(
+              result.json,
+              new Map(project ? [[project.id, project]] : [])
+            ).length
+          : 0;
+        detailTried.push({
+          url,
+          status: result.status,
+          ok: result.ok,
+          shapeMatched: Boolean(result.json && typeof result.json === "object"),
+          projectMatched: Boolean(normalized),
+          nestedConversationCount,
+        });
         if (!result.ok || !result.json || typeof result.json !== "object") {
           continue;
         }
-        const normalized = cgptNormalizeSidebarApiProject(result.json);
-        if (normalized && normalized.name && !cgptIsSidebarApiProjectSlugName(normalized.name)) {
+        detailPayload = result.json;
+        detailPayloads.push({
+          projectId: project.id,
+          payload: result.json,
+        });
+        if (
+          normalized &&
+          normalized.name &&
+          (cgptIsSidebarApiProjectSlugName(project.name) || project.name !== normalized.name)
+        ) {
           enrichedProject = {
             ...project,
             name: normalized.name,
@@ -279,17 +383,107 @@ async function cgptEnrichSidebarApiProjects(projects = [], requestContext = {}) 
               detailDisplayNameSource: "api_detail",
             },
           };
-          break;
         }
+        break;
       } catch (_error) {
+        detailTried.push({
+          url,
+          status: 0,
+          ok: false,
+          shapeMatched: false,
+          projectMatched: false,
+          nestedConversationCount: 0,
+        });
       }
     }
+    const projectConversationCandidates = cgptBuildSidebarApiProjectConversationCandidates({
+      ...project,
+      name: enrichedProject.name || project.name || "",
+      raw: {
+        ...(project.raw || {}),
+        detailName:
+          (enrichedProject.raw && enrichedProject.raw.detailName) ||
+          (project.raw && project.raw.detailName) ||
+          "",
+      },
+    });
+    const conversationTried = [];
+    for (const candidate of projectConversationCandidates) {
+      const url = cgptResolveSidebarApiAbsoluteUrl(candidate);
+      try {
+        const result = await cgptSidebarApiFetchJson(url, requestContext);
+        const shapeMatched = cgptIsConversationPayloadShape(result.json);
+        const collection = shapeMatched
+          ? cgptSidebarApiExtractCollection(result.json, ["items", "conversations", "data"])
+          : [];
+        const payloadSummary = cgptSummarizeSidebarApiPayload(result.json);
+        conversationTried.push({
+          url,
+          status: result.status,
+          ok: result.ok,
+          shapeMatched,
+          itemCount: Array.isArray(collection) ? collection.length : 0,
+          payloadKind: payloadSummary.kind,
+          payloadKeys: payloadSummary.keys,
+          payloadMessage: payloadSummary.message,
+        });
+        if (!result.ok || !result.json) {
+          continue;
+        }
+        if (!shapeMatched) {
+          continue;
+        }
+        projectConversationPayloads.push({
+          projectId: project.id,
+          projectName: enrichedProject.name || project.name || "",
+          endpoint: url,
+          payload: result.json,
+        });
+        break;
+      } catch (_error) {
+        conversationTried.push({
+          url,
+          status: 0,
+          ok: false,
+          shapeMatched: false,
+          itemCount: 0,
+          payloadKind: "",
+          payloadKeys: [],
+          payloadMessage: "",
+        });
+      }
+    }
+    projectApiSweep.push({
+      projectId: String(project.id || ""),
+      projectName: String(enrichedProject.name || project.name || ""),
+      detailTried,
+      conversationTried,
+      detailResolved: Boolean(detailPayload),
+    });
     enrichedProjects.push(enrichedProject);
   }
-  return enrichedProjects;
+  return {
+    projects: enrichedProjects,
+    detailPayloads,
+    projectConversationPayloads,
+    projectApiSweep,
+  };
 }
 
 function cgptExtractProjectCandidatesFromPayload(payload = {}) {
+  const selfCandidate =
+    payload &&
+    typeof payload === "object" &&
+    !Array.isArray(payload) &&
+    (
+      Array.isArray(payload.conversations) ||
+      Array.isArray(payload.recent_conversations) ||
+      Array.isArray(payload.recentConversations) ||
+      Array.isArray(payload.sidebar_conversations) ||
+      Array.isArray(payload.sidebarConversations)
+    )
+      ? [payload]
+      : [];
   const directCollections = [
     cgptSidebarApiExtractCollection(payload, ["gizmos", "items", "projects", "data", "workspaces"]),
   ];
@@ -303,7 +497,8 @@ function cgptExtractProjectCandidatesFromPayload(payload = {}) {
     []
   );
   const seenObjects = new Set();
-  return directCollections
+  return selfCandidate
+    .concat(directCollections)
     .concat(hintedCollections)
     .flat()
     .filter((item) => item && typeof item === "object")
@@ -330,22 +525,45 @@ function cgptNormalizeSidebarApiConversation(conversation = {}, projectIndex = n
       ""
   ).trim();
   const knownProject = projectId ? projectIndex.get(projectId) || null : null;
-  const projectName = cgptNormalizeSidebarApiText(
+  const rawProjectName = cgptNormalizeSidebarApiText(
     (conversation.project && conversation.project.name) ||
       (conversation.workspace && conversation.workspace.name) ||
-      (knownProject && knownProject.name) ||
       ""
   );
+  const knownProjectName = cgptNormalizeSidebarApiText((knownProject && knownProject.name) || "");
+  const projectName =
+    knownProjectName && (!rawProjectName || cgptIsSidebarApiProjectSlugName(rawProjectName))
+      ? knownProjectName
+      : (rawProjectName || knownProjectName);
   const membershipState = projectId || projectName ? "project" : "non_project";
+  const author = cgptNormalizeSidebarApiText(
+    conversation.author ||
+      conversation.author_name ||
+      conversation.owner ||
+      conversation.owner_name ||
+      conversation.created_by ||
+      ""
+  );
+  const postedAt = cgptNormalizeSidebarApiText(
+    conversation.posted_at ||
+      conversation.create_time ||
+      conversation.created_at ||
+      conversation.updated_at ||
+      ""
+  );
+  const absoluteUrl = cgptResolveSidebarApiAbsoluteUrl(`/c/${conversationId}`);
   return {
     id: conversationId,
     title,
     href: `/c/${conversationId}`,
+    absoluteUrl,
     conversationId,
     isActive: conversationId === cgptGetCurrentConversationIdFromLocation(),
     isProjectItem: membershipState === "project",
     projectName,
     projectId,
+    author,
+    postedAt,
     membershipState,
     source: "internal_api",
     raw: {
@@ -353,8 +571,125 @@ function cgptNormalizeSidebarApiConversation(conversation = {}, projectIndex = n
       title,
       projectId,
       projectName,
+      absoluteUrl,
+      author,
+      postedAt,
     },
   };
+}
+
+function cgptExtractNormalizedProjectConversationsFromPayload(payload = {}, projectIndex = new Map()) {
+  const normalizedConversations = [];
+  const seenConversationIds = new Set();
+  const projectCandidates = cgptExtractProjectCandidatesFromPayload(payload);
+  projectCandidates.forEach((projectCandidate) => {
+    const normalizedProject = cgptNormalizeSidebarApiProject(projectCandidate);
+    if (!normalizedProject) {
+      return;
+    }
+    const collections = [
+      projectCandidate.conversations,
+      projectCandidate.recent_conversations,
+      projectCandidate.recentConversations,
+      projectCandidate.sidebar_conversations,
+      projectCandidate.sidebarConversations,
+    ].filter(Array.isArray);
+    collections.forEach((collection) => {
+      collection.forEach((conversation) => {
+        const normalizedConversation = cgptNormalizeSidebarApiConversation(
+          {
+            ...(conversation && typeof conversation === "object" ? conversation : {}),
+            project_id:
+              (conversation && (conversation.project_id || conversation.projectId)) ||
+              normalizedProject.id,
+            project:
+              conversation && conversation.project
+                ? conversation.project
+                : { id: normalizedProject.id, name: normalizedProject.name },
+          },
+          projectIndex
+        );
+        if (!normalizedConversation) {
+          return;
+        }
+        const key = String(normalizedConversation.conversationId || normalizedConversation.id || "");
+        if (!key || seenConversationIds.has(key)) {
+          return;
+        }
+        seenConversationIds.add(key);
+        normalizedConversations.push(normalizedConversation);
+      });
+    });
+  });
+  return normalizedConversations;
+}
+
+function cgptMergeNormalizedSidebarConversations(...conversationLists) {
+  const mergedIndex = new Map();
+  conversationLists.flat().forEach((conversation) => {
+    if (!conversation || typeof conversation !== "object") {
+      return;
+    }
+    const key = String(conversation.conversationId || conversation.id || "");
+    if (!key) {
+      return;
+    }
+    const previous = mergedIndex.get(key);
+    if (!previous) {
+      mergedIndex.set(key, conversation);
+      return;
+    }
+    mergedIndex.set(key, {
+      ...previous,
+      ...conversation,
+      title: conversation.title || previous.title || "",
+      projectId: conversation.projectId || previous.projectId || "",
+      projectName: conversation.projectName || previous.projectName || "",
+      author: conversation.author || previous.author || "",
+      postedAt: conversation.postedAt || previous.postedAt || "",
+      isProjectItem: conversation.isProjectItem === true || previous.isProjectItem === true,
+      isActive: conversation.isActive === true || previous.isActive === true,
+      raw: {
+        ...(previous.raw || {}),
+        ...(conversation.raw || {}),
+      },
+    });
+  });
+  return Array.from(mergedIndex.values());
+}
+
+function cgptInjectProjectContextIntoConversationPayload(payload, project = {}) {
+  const items = cgptSidebarApiExtractCollection(payload, ["items", "conversations", "data"]);
+  if (!Array.isArray(items) || !items.length) {
+    return payload;
+  }
+  const projectId = String(project.projectId || project.id || "").trim();
+  const projectName = String(project.projectName || project.name || "").trim();
+  const normalizedItems = items.map((item) => ({
+    ...(item && typeof item === "object" ? item : {}),
+    project_id:
+      (item && (item.project_id || item.projectId)) ||
+      projectId,
+    project:
+      item && item.project
+        ? item.project
+        : projectId || projectName
+        ? { id: projectId, name: projectName }
+        : undefined,
+  }));
+  if (Array.isArray(payload)) {
+    return normalizedItems;
+  }
+  if (Array.isArray(payload.items)) {
+    return { ...payload, items: normalizedItems };
+  }
+  if (Array.isArray(payload.conversations)) {
+    return { ...payload, conversations: normalizedItems };
+  }
+  if (Array.isArray(payload.data)) {
+    return { ...payload, data: normalizedItems };
+  }
+  return payload;
 }
 
 async function cgptProbeSidebarApiEndpoint(candidates = [], requestContext = {}, shapeValidator) {
@@ -473,7 +808,10 @@ async function cgptFetchAllProjects(requestContext = {}) {
     normalizeItem: cgptNormalizeSidebarApiProject,
     extractItems: cgptExtractProjectCandidatesFromPayload,
   });
-  const enrichedProjects = await cgptEnrichSidebarApiProjects(projects, requestContext);
+  const projectEnrichment = await cgptEnrichSidebarApiProjects(projects, requestContext);
+  const enrichedProjects = Array.isArray(projectEnrichment.projects)
+    ? projectEnrichment.projects
+    : [];
   if (!enrichedProjects.length) {
     const payloadKeys = Array.isArray(probe.payload)
       ? Object.keys((probe.payload[0] && typeof probe.payload[0] === "object") ? probe.payload[0] : {}).slice(0, 20)
@@ -488,8 +826,74 @@ async function cgptFetchAllProjects(requestContext = {}) {
       payloadKeys,
     };
   }
+  const projectIndex = new Map(enrichedProjects.map((project) => [project.id, project]));
+  const projectConversationLists = Array.isArray(projectEnrichment.projectConversationPayloads)
+    ? await Promise.all(
+        projectEnrichment.projectConversationPayloads.map((entry) =>
+          cgptPaginateSidebarApiCollection({
+            endpoint: entry.endpoint || "",
+            initialPayload: cgptInjectProjectContextIntoConversationPayload(entry.payload, {
+              projectId: entry.projectId,
+              projectName: entry.projectName,
+            }),
+            requestContext,
+            collectionKeys: ["items", "conversations", "data"],
+            normalizeItem: (item) => cgptNormalizeSidebarApiConversation(item, projectIndex),
+          }).catch(() => [])
+        )
+      )
+    : [];
+  const detailConversationCountByProjectId = new Map();
+  if (Array.isArray(projectEnrichment.detailPayloads)) {
+    projectEnrichment.detailPayloads.forEach((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return;
+      }
+      const projectId = String(entry.projectId || "");
+      if (!projectId) {
+        return;
+      }
+      detailConversationCountByProjectId.set(
+        projectId,
+        cgptExtractNormalizedProjectConversationsFromPayload(entry.payload || {}, projectIndex).length
+      );
+    });
+  }
+  const endpointConversationCountByProjectId = new Map();
+  if (Array.isArray(projectEnrichment.projectConversationPayloads)) {
+    projectEnrichment.projectConversationPayloads.forEach((entry, index) => {
+      const projectId = String((entry && entry.projectId) || "");
+      if (!projectId) {
+        return;
+      }
+      endpointConversationCountByProjectId.set(
+        projectId,
+        Array.isArray(projectConversationLists[index]) ? projectConversationLists[index].length : 0
+      );
+    });
+  }
   return {
     projects: enrichedProjects,
+    projectSeedConversations: cgptMergeNormalizedSidebarConversations(
+      cgptExtractNormalizedProjectConversationsFromPayload(probe.payload, projectIndex),
+      ...(Array.isArray(projectEnrichment.detailPayloads)
+        ? projectEnrichment.detailPayloads.map((entry) =>
+            cgptExtractNormalizedProjectConversationsFromPayload(
+              entry.payload,
+              projectIndex
+            )
+          )
+        : [])
+      ,
+      ...projectConversationLists
+    ),
+    projectApiSweep: Array.isArray(projectEnrichment.projectApiSweep)
+      ? projectEnrichment.projectApiSweep.map((entry) => ({
+          ...entry,
+          detailConversationCount: detailConversationCountByProjectId.get(String(entry.projectId || "")) || 0,
+          endpointConversationCount: endpointConversationCountByProjectId.get(String(entry.projectId || "")) || 0,
+        }))
+      : [],
     endpointTried: probe.endpointTried,
     endpoint: probe.endpoint,
   };
@@ -535,15 +939,23 @@ async function cgptFetchSidebarApiSnapshot() {
     const projectIndex = new Map(projectResult.projects.map((project) => [project.id, project]));
     const conversationResult = await cgptFetchAllConversations(requestContext, projectIndex);
     endpointTried.push(...conversationResult.endpointTried);
+    const mergedConversations = cgptMergeNormalizedSidebarConversations(
+      Array.isArray(projectResult.projectSeedConversations) ? projectResult.projectSeedConversations : [],
+      conversationResult.conversations
+    );
     return {
       ok: true,
       snapshot: {
         sidebarFound: true,
-        conversations: conversationResult.conversations,
+        conversations: mergedConversations,
         projects: projectResult.projects,
         updatedAt: Date.now(),
         source: "internal_api",
+        debugBuild: CGPT_SIDEBAR_API_DEBUG_BUILD,
         diagnostics: null,
+        projectApiSweep: Array.isArray(projectResult.projectApiSweep)
+          ? projectResult.projectApiSweep
+          : [],
       },
     };
   } catch (error) {
@@ -571,7 +983,10 @@ if (typeof module !== "undefined" && module.exports) {
     cgptIsConversationPayloadShape,
     cgptIsProjectPayloadShape,
     cgptIsSidebarApiProjectSlugName,
+    cgptExtractNormalizedProjectConversationsFromPayload,
+    cgptMergeNormalizedSidebarConversations,
     cgptNormalizeSidebarApiConversation,
     cgptNormalizeSidebarApiProject,
+    cgptResolveSidebarApiAbsoluteUrl,
   };
 }

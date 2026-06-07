@@ -39,12 +39,71 @@ test("cgptNormalizeSidebarApiProject and cgptNormalizeSidebarApiConversation nor
         id: "chat-1",
         title: "Roadmap",
         project_id: "proj-1",
+        author: "Alice",
+        posted_at: "2026-05-01T10:00:00.000Z",
       },
       new Map([["proj-1", project]])
     );
     assert.equal(conversation.conversationId, "chat-1");
     assert.equal(conversation.projectName, "Project Alpha");
     assert.equal(conversation.isProjectItem, true);
+    assert.equal(conversation.absoluteUrl, "https://chatgpt.com/c/chat-1");
+    assert.equal(conversation.author, "Alice");
+    assert.equal(conversation.postedAt, "2026-05-01T10:00:00.000Z");
+  } finally {
+    cleanupWindowStub();
+  }
+});
+
+test("cgptNormalizeSidebarApiConversation allows optional metadata to be blank", () => {
+  installWindowStub();
+  try {
+    const { cgptNormalizeSidebarApiConversation } = loadModule();
+    const conversation = cgptNormalizeSidebarApiConversation({
+      id: "chat-2",
+      title: "No Metadata",
+    });
+    assert.equal(conversation.absoluteUrl, "https://chatgpt.com/c/chat-2");
+    assert.equal(conversation.author, "");
+    assert.equal(conversation.postedAt, "");
+  } finally {
+    cleanupWindowStub();
+  }
+});
+
+test("cgptExtractNormalizedProjectConversationsFromPayload reads nested project conversations", () => {
+  installWindowStub();
+  try {
+    const {
+      cgptExtractNormalizedProjectConversationsFromPayload,
+      cgptNormalizeSidebarApiProject,
+    } = loadModule();
+    const project = cgptNormalizeSidebarApiProject({
+      id: "proj-1",
+      name: "Project Alpha",
+    });
+    const conversations = cgptExtractNormalizedProjectConversationsFromPayload(
+      {
+        items: [
+          {
+            id: "proj-1",
+            name: "Project Alpha",
+            conversations: [
+              {
+                id: "chat-1",
+                title: "Nested Roadmap",
+              },
+            ],
+          },
+        ],
+      },
+      new Map([["proj-1", project]])
+    );
+    assert.equal(conversations.length, 1);
+    assert.equal(conversations[0].conversationId, "chat-1");
+    assert.equal(conversations[0].projectId, "proj-1");
+    assert.equal(conversations[0].projectName, "Project Alpha");
+    assert.equal(conversations[0].isProjectItem, true);
   } finally {
     cleanupWindowStub();
   }
@@ -200,6 +259,308 @@ test("cgptFetchSidebarApiSnapshot enriches slug-like project names from project 
     assert.equal(result.ok, true);
     assert.equal(result.snapshot.projects[0].name, "Surface Pro");
     assert.equal(result.snapshot.conversations[0].projectName, "Surface Pro");
+  } finally {
+    cleanupWindowStub();
+  }
+});
+
+test("cgptFetchSidebarApiSnapshot merges nested project conversations even when general conversations omit them", async () => {
+  installWindowStub();
+  try {
+    const responses = new Map([
+      [
+        "https://chatgpt.com/api/auth/session",
+        { ok: true, status: 200, body: { accessToken: "token-1" } },
+      ],
+      [
+        "https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=5",
+        {
+          ok: true,
+          status: 200,
+          body: [
+            {
+              gizmo: {
+                id: "proj-1",
+                displayName: "Project Alpha",
+              },
+              conversations: [
+                {
+                  id: "chat-project-1",
+                  title: "Project-only Chat",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      [
+        "https://chatgpt.com/backend-api/conversations?offset=0&limit=100&order=updated",
+        {
+          ok: true,
+          status: 200,
+          body: {
+            items: [{ id: "chat-1", title: "Normal Chat" }],
+            has_more: false,
+          },
+        },
+      ],
+    ]);
+    global.fetch = async (url) => {
+      const hit = responses.get(String(url));
+      if (!hit) {
+        return {
+          ok: false,
+          status: 404,
+          async json() {
+            return { error: "not found" };
+          },
+        };
+      }
+      return {
+        ok: hit.ok,
+        status: hit.status,
+        async json() {
+          return hit.body;
+        },
+      };
+    };
+    const { cgptFetchSidebarApiSnapshot } = loadModule();
+    const result = await cgptFetchSidebarApiSnapshot();
+    assert.equal(result.ok, true);
+    assert.equal(result.snapshot.conversations.length, 2);
+    const projectConversation = result.snapshot.conversations.find((item) => item.conversationId === "chat-project-1");
+    assert.ok(projectConversation);
+    assert.equal(projectConversation.projectId, "proj-1");
+    assert.equal(projectConversation.projectName, "Project Alpha");
+    assert.equal(projectConversation.isProjectItem, true);
+  } finally {
+    cleanupWindowStub();
+  }
+});
+
+test("cgptFetchSidebarApiSnapshot reads unopened project conversations from project detail payloads", async () => {
+  installWindowStub();
+  try {
+    const responses = new Map([
+      [
+        "https://chatgpt.com/api/auth/session",
+        { ok: true, status: 200, body: { accessToken: "token-1" } },
+      ],
+      [
+        "https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=5",
+        {
+          ok: true,
+          status: 200,
+          body: [
+            {
+              gizmo: {
+                id: "proj-1",
+                displayName: "Project Alpha",
+              },
+            },
+          ],
+        },
+      ],
+      [
+        "https://chatgpt.com/backend-api/gizmos/proj-1",
+        {
+          ok: true,
+          status: 200,
+          body: {
+            id: "proj-1",
+            displayName: "Project Alpha",
+            conversations: [
+              {
+                id: "chat-project-detail-1",
+                title: "Detail-only Project Chat",
+              },
+            ],
+          },
+        },
+      ],
+      [
+        "https://chatgpt.com/backend-api/conversations?offset=0&limit=100&order=updated",
+        {
+          ok: true,
+          status: 200,
+          body: {
+            items: [
+              {
+                id: "chat-normal-1",
+                title: "General Chat",
+              },
+            ],
+            has_more: false,
+          },
+        },
+      ],
+    ]);
+    global.fetch = async (url) => {
+      const hit = responses.get(String(url));
+      if (!hit) {
+        return {
+          ok: false,
+          status: 404,
+          async json() {
+            return { error: "not found" };
+          },
+        };
+      }
+      return {
+        ok: hit.ok,
+        status: hit.status,
+        async json() {
+          return hit.body;
+        },
+      };
+    };
+    const { cgptFetchSidebarApiSnapshot } = loadModule();
+    const result = await cgptFetchSidebarApiSnapshot();
+    assert.equal(result.ok, true);
+    const projectConversation = result.snapshot.conversations.find(
+      (item) => item.conversationId === "chat-project-detail-1"
+    );
+    assert.ok(projectConversation);
+    assert.equal(projectConversation.projectId, "proj-1");
+    assert.equal(projectConversation.projectName, "Project Alpha");
+    assert.equal(projectConversation.isProjectItem, true);
+  } finally {
+    cleanupWindowStub();
+  }
+});
+
+test("cgptFetchSidebarApiSnapshot records project API sweep diagnostics and prefers broader snorlax sidebar probes", async () => {
+  installWindowStub();
+  try {
+    const seenUrls = [];
+    const responses = new Map([
+      [
+        "https://chatgpt.com/api/auth/session",
+        { ok: true, status: 200, body: { accessToken: "token-1" } },
+      ],
+      [
+        "https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=100",
+        {
+          ok: true,
+          status: 200,
+          body: [
+            {
+              gizmo: {
+                id: "proj-1",
+                displayName: "Project Alpha",
+              },
+            },
+          ],
+        },
+      ],
+      [
+        "https://chatgpt.com/backend-api/gizmos/proj-1",
+        {
+          ok: true,
+          status: 200,
+          body: {
+            id: "proj-1",
+            displayName: "Project Alpha",
+            conversations: [
+              {
+                id: "chat-project-detail-1",
+                title: "Detail-only Project Chat",
+              },
+            ],
+          },
+        },
+      ],
+      [
+        "https://chatgpt.com/backend-api/gizmos/proj-1/conversations?offset=0&limit=100&order=updated",
+        {
+          ok: false,
+          status: 422,
+          body: {
+            detail: "invalid query",
+          },
+        },
+      ],
+      [
+        "https://chatgpt.com/backend-api/gizmos/proj-1/conversations",
+        {
+          ok: true,
+          status: 200,
+          body: {
+            items: [
+              {
+                id: "chat-project-endpoint-1",
+                title: "Endpoint Project Chat",
+              },
+            ],
+            has_more: false,
+          },
+        },
+      ],
+      [
+        "https://chatgpt.com/backend-api/conversations?offset=0&limit=100&order=updated",
+        {
+          ok: true,
+          status: 200,
+          body: {
+            items: [
+              {
+                id: "chat-normal-1",
+                title: "General Chat",
+              },
+            ],
+            has_more: false,
+          },
+        },
+      ],
+    ]);
+    global.fetch = async (url) => {
+      seenUrls.push(String(url));
+      const hit = responses.get(String(url));
+      if (!hit) {
+        return {
+          ok: false,
+          status: 404,
+          async json() {
+            return { error: "not found" };
+          },
+        };
+      }
+      return {
+        ok: hit.ok,
+        status: hit.status,
+        async json() {
+          return hit.body;
+        },
+      };
+    };
+    const { cgptFetchSidebarApiSnapshot } = loadModule();
+    const result = await cgptFetchSidebarApiSnapshot();
+    assert.equal(result.ok, true);
+    assert.equal(
+      seenUrls.includes("https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=100"),
+      true
+    );
+    assert.equal(
+      seenUrls.includes("https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=5"),
+      false
+    );
+    assert.ok(Array.isArray(result.snapshot.projectApiSweep));
+    assert.equal(result.snapshot.projectApiSweep.length, 1);
+    assert.equal(result.snapshot.projectApiSweep[0].projectId, "proj-1");
+    assert.equal(result.snapshot.projectApiSweep[0].detailConversationCount, 1);
+    assert.equal(result.snapshot.projectApiSweep[0].endpointConversationCount, 1);
+    assert.equal(result.snapshot.projectApiSweep[0].detailResolved, true);
+    assert.equal(result.snapshot.projectApiSweep[0].conversationTried[0].status, 422);
+    assert.equal(result.snapshot.projectApiSweep[0].conversationTried[0].payloadMessage, "invalid query");
+    const successfulConversationProbe = result.snapshot.projectApiSweep[0].conversationTried.find(
+      (entry) => entry.url === "https://chatgpt.com/backend-api/gizmos/proj-1/conversations"
+    );
+    assert.ok(successfulConversationProbe);
+    assert.equal(successfulConversationProbe.itemCount, 1);
+    assert.equal(
+      seenUrls.includes("https://chatgpt.com/backend-api/gizmos/proj-1/conversations"),
+      true
+    );
   } finally {
     cleanupWindowStub();
   }
