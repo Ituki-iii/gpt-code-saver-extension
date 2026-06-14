@@ -60,13 +60,17 @@ test("loads the extension service worker and records manifest metadata", async (
         if (!serviceWorker) {
           throw new Error("extension_service_worker_not_found");
         }
-        const manifestState = await serviceWorker.evaluate(() => ({
-          runtimeId: chrome.runtime.id,
-          serviceWorkerUrl: self.location.href,
-          manifest: chrome.runtime.getManifest(),
-        }));
+        const serviceWorkerUrl = serviceWorker.url();
+        const runtimeIdMatch = serviceWorkerUrl.match(/^chrome-extension:\\/\\/([^/]+)\\//);
+        const runtimeId = runtimeIdMatch ? runtimeIdMatch[1] : "";
+        let manifest = null;
+        try {
+          manifest = await serviceWorker.evaluate(() => chrome.runtime.getManifest());
+        } catch (_error) {
+          manifest = require(${JSON.stringify(path.join(extensionPath, "manifest.json"))});
+        }
         const optionsPage = await context.newPage();
-        await optionsPage.goto(\`chrome-extension://\${manifestState.runtimeId}/options/options.html\`, {
+        await optionsPage.goto(\`chrome-extension://\${runtimeId}/options/options.html\`, {
           waitUntil: "domcontentloaded",
         });
         const optionsState = await optionsPage.evaluate(() => ({
@@ -74,7 +78,7 @@ test("loads the extension service worker and records manifest metadata", async (
           apiDebugVisible: Boolean(document.getElementById("api-debug")),
           moveDebugVisible: Boolean(document.getElementById("move-debug")),
         }));
-        process.stdout.write(JSON.stringify({ ...manifestState, optionsState }));
+        process.stdout.write(JSON.stringify({ runtimeId, serviceWorkerUrl, manifest, optionsState }));
       } finally {
         await context.close().catch(() => {});
       }

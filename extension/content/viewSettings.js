@@ -1,5 +1,6 @@
 const DEFAULT_VIEW_SETTINGS = {
   compactLineCount: 1,
+  chatWindowLeftAligned: false,
 };
 
 let cgptViewSettings = { ...DEFAULT_VIEW_SETTINGS };
@@ -26,6 +27,9 @@ function cgptMergeViewSettings(nextSettings) {
       DEFAULT_VIEW_SETTINGS.compactLineCount,
       { min: 0 }
     );
+  }
+  if (typeof nextSettings.chatWindowLeftAligned !== "undefined") {
+    cgptViewSettings.chatWindowLeftAligned = nextSettings.chatWindowLeftAligned === true;
   }
 }
 

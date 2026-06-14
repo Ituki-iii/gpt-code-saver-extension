@@ -274,3 +274,39 @@ test("cgptRunSidebarBulkTitleUpdate renames through the API action layer", async
     delete global.document;
   }
 });
+
+test("cgptRenameSidebarConversation surfaces API failure without UI fallback", async () => {
+  installDocumentStub();
+  global.window = {
+    location: {
+      origin: "https://chatgpt.com",
+    },
+  };
+  global.fetch = async () => ({
+    ok: false,
+    status: 500,
+    headers: {
+      get() {
+        return "application/json";
+      },
+    },
+    async json() {
+      return { error: "api_action_failed" };
+    },
+  });
+  global.renameConversation = async () => {
+    throw new Error("api_action_failed");
+  };
+  try {
+    const { cgptRenameSidebarConversation } = loadModule();
+    await assert.rejects(
+      () => cgptRenameSidebarConversation({ conversationId: "chat-1", title: "Roadmap" }, "Next title"),
+      /api_action_failed/
+    );
+  } finally {
+    delete global.fetch;
+    delete global.renameConversation;
+    delete global.window;
+    cleanupDomStub();
+  }
+});

@@ -27,7 +27,10 @@
     "test:e2e:ui-pattern-extension-fixtures": "node tests/tools/run-playwright.js test --config tests/playwright.regression.config.js tests/e2e/chatgpt-ui-patterns-extension-offline.spec.js",
     "fetch:share-assets": "node tests/tools/fetch-chatgpt-share-assets.js",
     "open:chatgpt:gpu": "LD_LIBRARY_PATH=\"$PWD/tests/.local-libs/usr/lib/x86_64-linux-gnu\" node tests/tools/open-chatgpt-gpu.js",
-    "open:chatgpt:x11-ime": "LD_LIBRARY_PATH=\"$PWD/tests/.local-libs/usr/lib/x86_64-linux-gnu\" node tests/tools/open-chatgpt-x11-ime.js"
+    "open:chatgpt:x11-ime": "LD_LIBRARY_PATH=\"$PWD/tests/.local-libs/usr/lib/x86_64-linux-gnu\" node tests/tools/open-chatgpt-x11-ime.js",
+    "open:chatgpt:extension-cdp": "node tests/tools/open-chatgpt-extension-cdp.js",
+    "inspect:chatgpt:extension-cdp": "CGPT_ATTACH_ONLY=1 node tests/tools/open-chatgpt-extension-cdp.js",
+    "open:chatgpt:challenge": "CGPT_LOAD_EXTENSION=0 CGPT_ENABLE_CDP=0 node tests/tools/open-chatgpt-extension-cdp.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",

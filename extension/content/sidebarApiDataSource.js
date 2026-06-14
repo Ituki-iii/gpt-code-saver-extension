@@ -3,28 +3,99 @@ const CGPT_SIDEBAR_API_DEBUG_BUILD = "project-api-sweep-v2";
 const CGPT_SIDEBAR_API_ENDPOINTS = {
   session: [
     "/api/auth/session",
-    "/backend-api/accounts/check",
-    "/backend-api/me",
   ],
   projects: [
     "/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=5&limit=20",
-    "/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=20&limit=20",
-    "/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=100&limit=100",
-    "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=100",
-    "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=50",
-    "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=20",
-    "/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=5",
-    "/backend-api/projects?limit=100&offset=0",
-    "/backend-api/projects",
-    "/backend-api/projects?offset=0&limit=100&order=updated",
   ],
   conversations: [
     "/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false",
-    "/backend-api/conversations?offset=0&limit=100&order=updated&is_archived=false&is_starred=false",
-    "/backend-api/conversations?offset=0&limit=100&order=updated",
-    "/backend-api/conversations?limit=100&offset=0",
   ],
 };
+
+let cgptSidebarApiRequestTrace = null;
+
+function cgptGetSidebarApiRequestThrottleState() {
+  const root = typeof window !== "undefined" && window ? window : globalThis;
+  if (!root.__cgptSidebarApiRequestThrottleState) {
+    root.__cgptSidebarApiRequestThrottleState = {
+      chain: Promise.resolve(),
+      nextAllowedAt: 0,
+    };
+  }
+  return root.__cgptSidebarApiRequestThrottleState;
+}
+
+function cgptGetSidebarApiRequestMinIntervalMs() {
+  const override =
+    typeof window !== "undefined" &&
+    window &&
+    Number(window.CGPT_SIDEBAR_API_REQUEST_MIN_INTERVAL_MS);
+  if (Number.isFinite(override) && override >= 0) {
+    return override;
+  }
+  return 120;
+}
+
+function cgptWaitForSidebarApiRequestSlot() {
+  const state = cgptGetSidebarApiRequestThrottleState();
+  const intervalMs = cgptGetSidebarApiRequestMinIntervalMs();
+  let release = null;
+  const previous = state.chain;
+  state.chain = new Promise((resolve) => {
+    release = resolve;
+  });
+  return previous.then(async () => {
+    const now = Date.now();
+    const waitMs = Math.max(0, Number(state.nextAllowedAt || 0) - now);
+    state.nextAllowedAt = Math.max(now, Number(state.nextAllowedAt || 0)) + intervalMs;
+    if (release) {
+      release();
+    }
+    if (waitMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+  });
+}
+
+function cgptStartSidebarApiRequestTrace() {
+  cgptSidebarApiRequestTrace = {
+    startedAt: Date.now(),
+    total: 0,
+    byPhase: {},
+    byMethod: {},
+    byEndpoint: {},
+  };
+}
+
+function cgptRecordSidebarApiRequestTrace(url, method, phase, ok, status) {
+  if (!cgptSidebarApiRequestTrace) {
+    return;
+  }
+  const normalizedMethod = String(method || "GET").toUpperCase();
+  const normalizedPhase = String(phase || "unknown");
+  let endpointKey = "";
+  try {
+    const parsed = new URL(url, window.location.origin);
+    endpointKey = `${parsed.pathname}${parsed.search}`;
+  } catch (_error) {
+    endpointKey = String(url || "");
+  }
+  cgptSidebarApiRequestTrace.total += 1;
+  cgptSidebarApiRequestTrace.byPhase[normalizedPhase] = (cgptSidebarApiRequestTrace.byPhase[normalizedPhase] || 0) + 1;
+  cgptSidebarApiRequestTrace.byMethod[normalizedMethod] = (cgptSidebarApiRequestTrace.byMethod[normalizedMethod] || 0) + 1;
+  cgptSidebarApiRequestTrace.byEndpoint[endpointKey] = (cgptSidebarApiRequestTrace.byEndpoint[endpointKey] || 0) + 1;
+  cgptSidebarApiRequestTrace.lastStatus = Number.isFinite(Number(status)) ? Number(status) : 0;
+  cgptSidebarApiRequestTrace.lastOk = Boolean(ok);
+}
+
+function cgptFinishSidebarApiRequestTrace() {
+  if (!cgptSidebarApiRequestTrace) {
+    return null;
+  }
+  const trace = JSON.parse(JSON.stringify(cgptSidebarApiRequestTrace));
+  cgptSidebarApiRequestTrace = null;
+  return trace;
+}
 
 function cgptResolveSidebarApiAbsoluteUrl(pathname) {
   try {
@@ -84,16 +155,26 @@ async function cgptSidebarApiFetchJson(url, requestContext = {}) {
     Accept: "application/json",
     ...(requestContext.headers || {}),
   };
-  const response = await fetch(url, {
-    method: "GET",
-    credentials: "include",
-    headers,
-  });
+  const method = String(requestContext.method || "GET").toUpperCase();
+  const tracePhase = String(requestContext.tracePhase || "unknown");
+  let response = null;
+  try {
+    await cgptWaitForSidebarApiRequestSlot();
+    response = await fetch(url, {
+      method,
+      credentials: "include",
+      headers,
+    });
+  } catch (error) {
+    cgptRecordSidebarApiRequestTrace(url, method, tracePhase, false, 0);
+    throw error;
+  }
   let json = null;
   try {
     json = await response.json();
   } catch (_error) {
   }
+  cgptRecordSidebarApiRequestTrace(url, method, tracePhase, response.ok, response.status);
   return {
     url,
     ok: response.ok,
@@ -125,6 +206,7 @@ async function cgptSidebarApiFetchActionJson(url, { method = "POST", body = null
     ...(body === null ? {} : { "Content-Type": "application/json" }),
     ...(requestContext.headers || {}),
   };
+  await cgptWaitForSidebarApiRequestSlot();
   const response = await fetch(url, {
     method,
     credentials: "include",
@@ -423,7 +505,7 @@ async function cgptFetchSessionContext() {
   for (const candidate of CGPT_SIDEBAR_API_ENDPOINTS.session) {
     const url = cgptResolveSidebarApiAbsoluteUrl(candidate);
     try {
-      const result = await cgptSidebarApiFetchJson(url, {});
+      const result = await cgptSidebarApiFetchJson(url, { tracePhase: "session" });
       endpointTried.push({
         url,
         status: result.status,
@@ -519,48 +601,23 @@ function cgptBuildSidebarApiProjectDetailCandidates(projectId) {
   const normalizedId = String(projectId || "").trim();
   if (!normalizedId) return [];
   const encodedId = encodeURIComponent(normalizedId);
-  return [
-    `/backend-api/gizmos/${encodedId}`,
-    `/backend-api/projects/${encodedId}`,
-  ];
+  return [`/backend-api/gizmos/${encodedId}`];
 }
 
 function cgptBuildSidebarApiProjectConversationCandidates(project = {}) {
   const raw = project && project.raw ? project.raw : {};
-  const routeCandidates = [
-    project && project.id,
-    raw.originalName,
-    raw.detailName,
-    project && project.name,
-  ]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
-  const uniqueRouteCandidates = Array.from(new Set(routeCandidates));
-  if (!uniqueRouteCandidates.length) return [];
-  const suffixes = [
-    "/conversations?cursor=0&limit=5&owned_only=true",
-    "/conversations?cursor=0&limit=20&owned_only=true",
-    "/conversations?offset=0&limit=100&order=updated",
-    "/conversations?limit=100&offset=0",
-    "/conversations?offset=0&limit=100",
-    "/conversations?limit=100&order=updated",
-    "/conversations?limit=100",
-    "/conversations",
+  const routeId = String(
+    project && project.id ||
+      raw.detailProjectId ||
+      raw.originalName ||
+      raw.detailName ||
+      project && project.name ||
+      ""
+  ).trim();
+  if (!routeId) return [];
+  return [
+    `/backend-api/gizmos/${encodeURIComponent(routeId)}/conversations?cursor=0&limit=100&owned_only=true`,
   ];
-  const prefixes = [
-    "/backend-api/gizmos",
-    "/backend-api/projects",
-  ];
-  const candidates = [];
-  uniqueRouteCandidates.forEach((routeId) => {
-    const encodedId = encodeURIComponent(routeId);
-    prefixes.forEach((prefix) => {
-      suffixes.forEach((suffix) => {
-        candidates.push(`${prefix}/${encodedId}${suffix}`);
-      });
-    });
-  });
-  return Array.from(new Set(candidates));
 }
 
 async function cgptEnrichSidebarApiProjects(projects = [], requestContext = {}) {
@@ -580,7 +637,10 @@ async function cgptEnrichSidebarApiProjects(projects = [], requestContext = {}) 
     for (const candidate of detailCandidates) {
       const url = cgptResolveSidebarApiAbsoluteUrl(candidate);
       try {
-        const result = await cgptSidebarApiFetchJson(url, requestContext);
+        const result = await cgptSidebarApiFetchJson(url, {
+          ...requestContext,
+          tracePhase: "project_detail",
+        });
         const normalized = result.ok && result.json && typeof result.json === "object"
           ? cgptNormalizeSidebarApiProject(result.json)
           : null;
@@ -649,7 +709,10 @@ async function cgptEnrichSidebarApiProjects(projects = [], requestContext = {}) 
     for (const candidate of projectConversationCandidates) {
       const url = cgptResolveSidebarApiAbsoluteUrl(candidate);
       try {
-        const result = await cgptSidebarApiFetchJson(url, requestContext);
+        const result = await cgptSidebarApiFetchJson(url, {
+          ...requestContext,
+          tracePhase: "project_conversations",
+        });
         const shapeMatched = cgptIsConversationPayloadShape(result.json);
         const collection = shapeMatched
           ? cgptSidebarApiExtractCollection(result.json, ["items", "conversations", "data"])
@@ -939,12 +1002,15 @@ function cgptInjectProjectContextIntoConversationPayload(payload, project = {}) 
   return payload;
 }
 
-async function cgptProbeSidebarApiEndpoint(candidates = [], requestContext = {}, shapeValidator) {
+async function cgptProbeSidebarApiEndpoint(candidates = [], requestContext = {}, shapeValidator, tracePhase = "probe") {
   const endpointTried = [];
   for (const candidate of candidates) {
     const url = cgptResolveSidebarApiAbsoluteUrl(candidate);
     try {
-      const result = await cgptSidebarApiFetchJson(url, requestContext);
+      const result = await cgptSidebarApiFetchJson(url, {
+        ...requestContext,
+        tracePhase,
+      });
       const shapeMatched = Boolean(shapeValidator && shapeValidator(result.json));
       endpointTried.push({
         url,
@@ -994,6 +1060,7 @@ async function cgptPaginateSidebarApiCollection({
   collectionKeys,
   normalizeItem,
   extractItems,
+  tracePhase = "pagination",
 }) {
   const items = [];
   const seenIds = new Set();
@@ -1017,7 +1084,10 @@ async function cgptPaginateSidebarApiCollection({
       break;
     }
     const nextUrl = cgptBuildPaginatedSidebarApiUrl(endpoint, pagination.nextCursor, items.length);
-    const result = await cgptSidebarApiFetchJson(nextUrl, requestContext);
+    const result = await cgptSidebarApiFetchJson(nextUrl, {
+      ...requestContext,
+      tracePhase,
+    });
     if (!result.ok || !result.json || typeof result.json !== "object") {
       throw {
         phase: "pagination",
@@ -1035,7 +1105,8 @@ async function cgptFetchAllProjects(requestContext = {}) {
   const probe = await cgptProbeSidebarApiEndpoint(
     CGPT_SIDEBAR_API_ENDPOINTS.projects,
     requestContext,
-    cgptIsProjectPayloadShape
+    cgptIsProjectPayloadShape,
+    "projects_probe"
   );
   if (!probe.ok) {
     throw {
@@ -1054,6 +1125,7 @@ async function cgptFetchAllProjects(requestContext = {}) {
     collectionKeys: ["gizmos", "items", "projects", "data", "workspaces"],
     normalizeItem: cgptNormalizeSidebarApiProject,
     extractItems: cgptExtractProjectCandidatesFromPayload,
+    tracePhase: "projects_page",
   });
   const projectEnrichment = await cgptEnrichSidebarApiProjects(projects, requestContext);
   const enrichedProjects = Array.isArray(projectEnrichment.projects)
@@ -1086,6 +1158,7 @@ async function cgptFetchAllProjects(requestContext = {}) {
             requestContext,
             collectionKeys: ["items", "conversations", "data"],
             normalizeItem: (item) => cgptNormalizeSidebarApiConversation(item, projectIndex),
+            tracePhase: "project_conversations_page",
           }).catch(() => [])
         )
       )
@@ -1150,7 +1223,8 @@ async function cgptFetchAllConversations(requestContext = {}, projectIndex = new
   const probe = await cgptProbeSidebarApiEndpoint(
     CGPT_SIDEBAR_API_ENDPOINTS.conversations,
     requestContext,
-    cgptIsConversationPayloadShape
+    cgptIsConversationPayloadShape,
+    "conversations_probe"
   );
   if (!probe.ok) {
     throw {
@@ -1168,6 +1242,7 @@ async function cgptFetchAllConversations(requestContext = {}, projectIndex = new
     requestContext,
     collectionKeys: ["items", "conversations", "data"],
     normalizeItem: (item) => cgptNormalizeSidebarApiConversation(item, projectIndex),
+    tracePhase: "conversations_page",
   });
   return {
     conversations,
@@ -1177,6 +1252,7 @@ async function cgptFetchAllConversations(requestContext = {}, projectIndex = new
 }
 
 async function cgptFetchSidebarApiSnapshot() {
+  cgptStartSidebarApiRequestTrace();
   const sessionResult = await cgptFetchSessionContext();
   const requestContext = cgptBuildSidebarApiRequestContext(sessionResult.payload);
   const endpointTried = [...sessionResult.endpointTried];
@@ -1218,6 +1294,7 @@ async function cgptFetchSidebarApiSnapshot() {
         source: "internal_api",
         debugBuild: CGPT_SIDEBAR_API_DEBUG_BUILD,
         diagnostics: conversationDiagnostics,
+        requestTrace: cgptFinishSidebarApiRequestTrace(),
         projectApiSweep: Array.isArray(projectResult.projectApiSweep)
           ? projectResult.projectApiSweep
           : [],
@@ -1236,6 +1313,7 @@ async function cgptFetchSidebarApiSnapshot() {
           ? error.endpointTried
           : endpointTried,
       },
+      requestTrace: cgptFinishSidebarApiRequestTrace(),
     };
   }
 }

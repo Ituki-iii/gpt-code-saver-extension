@@ -137,10 +137,14 @@ test.describe("README workflow regression", () => {
           panelLeft: panelRect.left,
           marginRight: window.getComputedStyle(main).marginRight,
           paddingBottom: window.getComputedStyle(main).paddingBottom,
+          inlineMarginRight: main.style.marginRight,
+          inlinePaddingBottom: main.style.paddingBottom,
         };
       });
       expect(initialLayout).toBeTruthy();
-      expect(initialLayout.mainRight).toBeLessThanOrEqual(initialLayout.panelLeft - 8);
+      expect(initialLayout.mainRight).toBeGreaterThan(initialLayout.panelLeft);
+      expect(initialLayout.inlineMarginRight).toBe("");
+      expect(initialLayout.inlinePaddingBottom).toBe("");
 
       const saveButton = page.locator(
         "[data-cgpt-code-wrapper='1'] button[data-cgpt-button-role='save']"

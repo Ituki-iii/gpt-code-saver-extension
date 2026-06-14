@@ -17,6 +17,9 @@ function cgptRenderExtensionIfEnabled(onEnabled) {
 }
 
 function cgptInitializeUi() {
+  if (typeof cgptRefreshChatWindowAlignment === "function") {
+    cgptRefreshChatWindowAlignment(document);
+  }
   createFloatingPanel();
   if (typeof cgptStartLightweightModeWatcher === "function") {
     cgptStartLightweightModeWatcher();

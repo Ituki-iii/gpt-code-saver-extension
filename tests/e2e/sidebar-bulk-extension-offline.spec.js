@@ -215,6 +215,39 @@ test.describe("sidebar bulk feature", () => {
     }
   });
 
+  test("sidebar bulk panel stays within a narrow viewport without horizontal overflow", async () => {
+    const page = await createSidebarBulkPage(sharedContext);
+    try {
+      await page.setViewportSize({ width: 620, height: 700 });
+      await page.getByRole("button", { name: "Bulk Chats" }).click();
+      const panel = page.locator("#cgpt-helper-sidebar-bulk-panel");
+      const list = page.locator("#cgpt-helper-sidebar-bulk-list");
+      await expect(panel).toBeVisible();
+      await expect(list).toBeVisible();
+
+      const viewport = page.viewportSize();
+      const panelBox = await panel.boundingBox();
+      const listBox = await list.boundingBox();
+      const overflow = await panel.evaluate((element) => ({
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+      }));
+
+      expect(viewport).toBeTruthy();
+      expect(panelBox).toBeTruthy();
+      expect(listBox).toBeTruthy();
+      expect(panelBox.x).toBeGreaterThanOrEqual(0);
+      expect(panelBox.y).toBeGreaterThanOrEqual(0);
+      expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(viewport.width);
+      expect(panelBox.width).toBeLessThanOrEqual(viewport.width);
+      expect(listBox.x).toBeGreaterThanOrEqual(panelBox.x);
+      expect(listBox.x + listBox.width).toBeLessThanOrEqual(panelBox.x + panelBox.width);
+      expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+    } finally {
+      await page.close().catch(() => {});
+    }
+  });
+
   test("pencil rename click does not toggle chat selection", async () => {
     const page = await createSidebarBulkPage(sharedContext);
     try {

@@ -228,7 +228,7 @@ function buildFixtureHtml() {
 </html>`;
 }
 
-test("compact mode keeps native labels and appends file paths by default", async ({ page, browserName }) => {
+test("expanded mode keeps native labels and appends file paths by default", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "This DOM-level verification targets Chromium behavior.");
 
   const screenshotDir = path.join(artifactsRoot, "screenshots");
@@ -255,7 +255,7 @@ test("compact mode keeps native labels and appends file paths by default", async
       pathText: "src/demo.py",
       langText: "",
       hasToggle: true,
-      toggleExpanded: "false",
+      toggleExpanded: "true",
       toggleCount: 1,
       compactFirstLine: "def hello():",
       hostDisplay: "",
@@ -265,7 +265,7 @@ test("compact mode keeps native labels and appends file paths by default", async
       pathText: "scripts/run.sh",
       langText: "",
       hasToggle: true,
-      toggleExpanded: "false",
+      toggleExpanded: "true",
       toggleCount: 1,
       compactFirstLine: 'echo "hello"',
       hostDisplay: "",
@@ -275,7 +275,7 @@ test("compact mode keeps native labels and appends file paths by default", async
       pathText: "src/middleware/errorHandler.js",
       langText: "JavaScript",
       hasToggle: true,
-      toggleExpanded: "false",
+      toggleExpanded: "true",
       toggleCount: 1,
       compactFirstLine: "export function errorHandler(err, req, res, next) {",
       hostDisplay: "",
@@ -385,12 +385,12 @@ test("compact and expand can be repeated without breaking the header path", asyn
       pathText: "src/middleware/errorHandler.js",
       langText: "JavaScript",
       summaryText: "export function errorHandler(err, req, res, next) {",
-      toggleExpanded: "false",
+      toggleExpanded: "true",
       toggleCount: 1,
     },
     {
-      pathCount: 0,
-      pathText: "",
+      pathCount: 1,
+      pathText: "src/middleware/errorHandler.js",
       langText: "JavaScript",
       summaryText: "export function errorHandler(err, req, res, next) {",
       toggleExpanded: "true",
@@ -405,8 +405,8 @@ test("compact and expand can be repeated without breaking the header path", asyn
       toggleCount: 1,
     },
     {
-      pathCount: 0,
-      pathText: "",
+      pathCount: 1,
+      pathText: "src/middleware/errorHandler.js",
       langText: "JavaScript",
       summaryText: "export function errorHandler(err, req, res, next) {",
       toggleExpanded: "true",
@@ -421,8 +421,8 @@ test("compact and expand can be repeated without breaking the header path", asyn
       toggleCount: 1,
     },
     {
-      pathCount: 0,
-      pathText: "",
+      pathCount: 1,
+      pathText: "src/middleware/errorHandler.js",
       langText: "JavaScript",
       summaryText: "export function errorHandler(err, req, res, next) {",
       toggleExpanded: "true",
@@ -484,15 +484,6 @@ test("header toggle switches compact mode from the left edge control", async ({ 
 
   expect(result).toHaveLength(3);
   expect(result[0]).toEqual({
-    viewMode: "compact",
-    toggleExpanded: "false",
-    toggleCount: 1,
-    hostDisplay: "",
-    hostMaxHeight: expect.any(String),
-    hostOverflow: "hidden",
-  });
-  expect(result[0].hostMaxHeight).not.toBe("");
-  expect(result[1]).toEqual({
     viewMode: "expanded",
     toggleExpanded: "true",
     toggleCount: 1,
@@ -500,7 +491,7 @@ test("header toggle switches compact mode from the left edge control", async ({ 
     hostMaxHeight: "",
     hostOverflow: "",
   });
-  expect(result[2]).toEqual({
+  expect(result[1]).toEqual({
     viewMode: "compact",
     toggleExpanded: "false",
     toggleCount: 1,
@@ -508,5 +499,13 @@ test("header toggle switches compact mode from the left edge control", async ({ 
     hostMaxHeight: expect.any(String),
     hostOverflow: "hidden",
   });
-  expect(result[2].hostMaxHeight).not.toBe("");
+  expect(result[1].hostMaxHeight).not.toBe("");
+  expect(result[2]).toEqual({
+    viewMode: "expanded",
+    toggleExpanded: "true",
+    toggleCount: 1,
+    hostDisplay: "",
+    hostMaxHeight: "",
+    hostOverflow: "",
+  });
 });
