@@ -39,6 +39,49 @@ function cgptSidebarWait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function cgptGetSidebarActionRequestThrottleState() {
+  const root = typeof window !== "undefined" && window ? window : globalThis;
+  if (!root.__cgptSidebarApiRequestThrottleState) {
+    root.__cgptSidebarApiRequestThrottleState = {
+      chain: Promise.resolve(),
+      nextAllowedAt: 0,
+    };
+  }
+  return root.__cgptSidebarApiRequestThrottleState;
+}
+
+function cgptGetSidebarActionRequestMinIntervalMs() {
+  const override =
+    typeof window !== "undefined" &&
+    window &&
+    Number(window.CGPT_SIDEBAR_API_REQUEST_MIN_INTERVAL_MS);
+  if (Number.isFinite(override) && override >= 0) {
+    return override;
+  }
+  return 120;
+}
+
+function cgptWaitForSidebarActionRequestSlot() {
+  const state = cgptGetSidebarActionRequestThrottleState();
+  const intervalMs = cgptGetSidebarActionRequestMinIntervalMs();
+  let release = null;
+  const previous = state.chain;
+  state.chain = new Promise((resolve) => {
+    release = resolve;
+  });
+  return previous.then(async () => {
+    const now = Date.now();
+    const waitMs = Math.max(0, Number(state.nextAllowedAt || 0) - now);
+    state.nextAllowedAt = Math.max(now, Number(state.nextAllowedAt || 0)) + intervalMs;
+    if (release) {
+      release();
+    }
+    if (waitMs > 0) {
+      await cgptSidebarWait(waitMs);
+    }
+  });
+}
+
 function cgptTrimProjectMoveDebugText(value, limit = CGPT_PROJECT_MOVE_DEBUG_TEXT_LIMIT) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   return text.length > limit ? `${text.slice(0, limit)}...` : text;
@@ -239,7 +282,7 @@ function cgptIsSidebarHelperNode(node) {
 async function cgptWaitForSidebarRefresh() {
   await cgptSidebarWait(120);
   if (typeof cgptRefreshSidebarConversationSnapshot === "function") {
-    cgptRefreshSidebarConversationSnapshot(document);
+    cgptRefreshSidebarConversationSnapshot(document, { forceRefresh: true });
   }
 }
 
@@ -266,6 +309,55 @@ function cgptDidConversationReachProjectTarget(conversation = {}, projectTarget 
   return false;
 }
 
+function cgptDidConversationReachRenameTarget(conversation = {}, nextTitle = "") {
+  if (!conversation || typeof conversation !== "object") {
+    return false;
+  }
+  const normalizedTitle = String(nextTitle || "").trim().toLowerCase();
+  if (!normalizedTitle) {
+    return false;
+  }
+  const conversationTitle = String(conversation.title || "").trim().toLowerCase();
+  return conversationTitle === normalizedTitle;
+}
+
+function cgptGetSidebarRenameVerifyTimeoutMs() {
+  const override =
+    typeof window !== "undefined" &&
+    window &&
+    Number(window.CGPT_SIDEBAR_RENAME_VERIFY_TIMEOUT_MS);
+  return Number.isFinite(override) && override >= 0 ? override : 3500;
+}
+
+async function cgptVerifyConversationRename(conversation = {}, nextTitle = "") {
+  const conversationId = String((conversation && (conversation.conversationId || conversation.id)) || "");
+  const normalizedTitle = String(nextTitle || "").trim();
+  if (!conversationId || !normalizedTitle) {
+    throw new Error("failed_rename_not_verified");
+  }
+  const verifyTimeoutMs = cgptGetSidebarRenameVerifyTimeoutMs();
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= verifyTimeoutMs) {
+    if (typeof cgptRefreshSidebarConversationSnapshot === "function") {
+      cgptRefreshSidebarConversationSnapshot(document, { forceRefresh: true });
+    }
+    await cgptSidebarWait(160);
+    const snapshot =
+      typeof cgptGetSidebarConversationSnapshot === "function"
+        ? cgptGetSidebarConversationSnapshot()
+        : { conversations: [] };
+    const refreshedConversation = Array.isArray(snapshot.conversations)
+      ? snapshot.conversations.find((item) =>
+          String((item && (item.conversationId || item.id)) || "") === conversationId
+        ) || null
+      : null;
+    if (refreshedConversation && cgptDidConversationReachRenameTarget(refreshedConversation, normalizedTitle)) {
+      return refreshedConversation;
+    }
+  }
+  throw new Error("failed_rename_not_verified");
+}
+
 async function cgptVerifyConversationProjectMove(conversation = {}, projectTarget = {}) {
   const conversationId = String((conversation && (conversation.conversationId || conversation.id)) || "");
   if (!conversationId || !projectTarget || !projectTarget.projectId) {
@@ -274,7 +366,7 @@ async function cgptVerifyConversationProjectMove(conversation = {}, projectTarge
   const startedAt = Date.now();
   while (Date.now() - startedAt <= 3500) {
     if (typeof cgptRefreshSidebarConversationSnapshot === "function") {
-      cgptRefreshSidebarConversationSnapshot(document);
+      cgptRefreshSidebarConversationSnapshot(document, { forceRefresh: true });
     }
     await cgptSidebarWait(160);
     const snapshot =
@@ -888,6 +980,7 @@ async function cgptFetchSidebarActionApiJson(request) {
     typeof cgptResolveSidebarApiAbsoluteUrl === "function"
       ? cgptResolveSidebarApiAbsoluteUrl(request.path)
       : request.path;
+  await cgptWaitForSidebarActionRequestSlot();
   const response = await fetch(url, {
     method: request.method || "POST",
     credentials: "include",
@@ -1006,23 +1099,11 @@ async function cgptRenameSidebarConversation(conversation, nextTitle) {
     if (typeof cgptWaitForSidebarRefresh === "function") {
       await cgptWaitForSidebarRefresh();
     }
+    await cgptVerifyConversationRename(conversation, nextTitle);
     return;
-  } catch (_apiError) {
-    return cgptRenameSidebarConversationViaUi(conversation, nextTitle);
+  } catch (error) {
+    throw error;
   }
-}
-
-async function cgptRenameSidebarConversationViaUi(conversation, nextTitle) {
-  const normalizedTitle = String(nextTitle || "").trim();
-  if (!normalizedTitle) {
-    throw new Error("failed_confirmation");
-  }
-  await cgptOpenConversationMenu(conversation);
-  await cgptClickMenuItemByText(CGPT_SIDEBAR_ACTION_LABELS.rename);
-  const editor = await cgptWaitForRenameEditor();
-  cgptSetRenameEditorValue(editor, normalizedTitle);
-  await cgptCommitRenameEditor(editor);
-  await cgptWaitForSidebarRefresh();
 }
 
 function cgptBuildSidebarConversationTitleUpdate(conversation, prefix = "", suffix = "") {
@@ -1033,20 +1114,6 @@ function cgptBuildSidebarConversationTitleUpdate(conversation, prefix = "", suff
     nextTitle,
     changed: Boolean(nextTitle) && nextTitle !== currentTitle,
   };
-}
-
-function cgptIsSidebarLegacyGuiActionFallbackEnabled() {
-  if (typeof window !== "undefined" && window && window.CGPT_ENABLE_SIDEBAR_GUI_ACTION_FALLBACK === true) {
-    return true;
-  }
-  try {
-    return (
-      typeof localStorage !== "undefined" &&
-      localStorage.getItem("cgpt.sidebarBulk.legacyGuiFallback") === "true"
-    );
-  } catch (_error) {
-    return false;
-  }
 }
 
 function cgptGetSidebarApiActionExecutor(action) {
@@ -1094,7 +1161,6 @@ async function cgptRunSidebarBulkAction({ action, conversationIds, projectTarget
     ])
   );
   const results = [];
-  const useLegacyGuiFallback = cgptIsSidebarLegacyGuiActionFallbackEnabled();
   for (const conversationId of Array.isArray(conversationIds) ? conversationIds : []) {
     const key = String(conversationId || "").trim();
     const conversation = conversationMap.get(key) || null;
@@ -1120,36 +1186,6 @@ async function cgptRunSidebarBulkAction({ action, conversationIds, projectTarget
       await cgptWaitForSidebarRefresh();
       results.push({ ok: true, status: "success", conversationId: key, title: conversation.title });
     } catch (error) {
-      if (useLegacyGuiFallback) {
-        try {
-          await cgptRunSingleSidebarAction(conversation, action, projectTarget);
-          results.push({
-            ok: true,
-            status: "success_legacy_gui_fallback",
-            conversationId: key,
-            title: conversation.title,
-          });
-          continue;
-        } catch (fallbackError) {
-          const moveDebugIndex = action === "project"
-            ? cgptCaptureProjectMoveDebugSnapshot("project_move_failed_legacy_gui_fallback", {
-                conversation,
-                projectTarget,
-                error: fallbackError,
-              })
-            : -1;
-          results.push({
-            ok: false,
-            status: fallbackError && fallbackError.message ? fallbackError.message : "failed_timeout",
-            conversationId: key,
-            title: conversation.title,
-            moveDebugIndex,
-            apiStatus: error && error.message ? error.message : "failed_api_action",
-            legacyGuiFallback: true,
-          });
-          continue;
-        }
-      }
       const moveDebugIndex = action === "project"
         ? cgptCaptureProjectMoveDebugSnapshot("project_move_failed", {
             conversation,
@@ -1229,30 +1265,6 @@ async function cgptRunSidebarBulkTitleUpdate({ conversationIds, prefix, suffix }
         nextTitle: titleUpdate.nextTitle,
       });
     } catch (error) {
-      if (cgptIsSidebarLegacyGuiActionFallbackEnabled()) {
-        try {
-          await cgptRenameSidebarConversationViaUi(conversation, titleUpdate.nextTitle);
-          results.push({
-            ok: true,
-            status: "success_legacy_gui_fallback",
-            conversationId: key,
-            title: conversation.title,
-            nextTitle: titleUpdate.nextTitle,
-          });
-          continue;
-        } catch (fallbackError) {
-          results.push({
-            ok: false,
-            status: fallbackError && fallbackError.message ? fallbackError.message : "failed_timeout",
-            conversationId: key,
-            title: conversation.title,
-            nextTitle: titleUpdate.nextTitle,
-            apiStatus: error && error.message ? error.message : "failed_api_action",
-            legacyGuiFallback: true,
-          });
-          continue;
-        }
-      }
       results.push({
         ok: false,
         status: error && error.message ? error.message : "failed_api_action",
@@ -1292,10 +1304,8 @@ if (typeof module !== "undefined" && module.exports) {
     cgptFindProjectTargetOption,
     cgptGetSidebarProjectMoveDebugLog,
     cgptGetSidebarApiActionExecutor,
-    cgptIsSidebarLegacyGuiActionFallbackEnabled,
     cgptOpenSidebarProjectCreationUi,
     cgptRenameSidebarConversation,
-    cgptRenameSidebarConversationViaUi,
     cgptRunSingleSidebarApiAction,
     cgptRunSingleSidebarGuiFallbackAction,
     cgptRunSidebarApiSingleAction,

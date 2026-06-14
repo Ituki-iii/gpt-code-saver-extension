@@ -1,10 +1,58 @@
 function createViewSection() {
   const viewSection = createPanelSection("View Controls");
+  viewSection.appendChild(createDisplayActionsSubLabel("Chat"));
+  viewSection.appendChild(createChatWindowAlignmentControl());
   viewSection.appendChild(createDisplayActionsSubLabel("Code Blocks"));
   viewSection.appendChild(createViewModeButtonsRow());
   viewSection.appendChild(createCodeBlockReapplyButton());
   viewSection.appendChild(createHeadingViewSection());
   return viewSection;
+}
+
+function createChatWindowAlignmentControl() {
+  const settings =
+    typeof cgptGetViewSettings === "function"
+      ? cgptGetViewSettings()
+      : { chatWindowLeftAligned: false };
+
+  const row = document.createElement("label");
+  row.style.display = "flex";
+  row.style.alignItems = "center";
+  row.style.gap = "6px";
+  row.style.minHeight = "28px";
+  row.style.cursor = "pointer";
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = settings.chatWindowLeftAligned === true;
+  checkbox.style.margin = "0";
+  checkbox.addEventListener("change", () => {
+    const nextValue = checkbox.checked === true;
+    if (typeof cgptUpdateViewSettings === "function") {
+      cgptUpdateViewSettings({ chatWindowLeftAligned: nextValue }, (updatedSettings) => {
+        checkbox.checked = updatedSettings.chatWindowLeftAligned === true;
+        if (typeof cgptApplyChatWindowAlignment === "function") {
+          cgptApplyChatWindowAlignment(updatedSettings);
+        }
+      });
+      return;
+    }
+    if (typeof cgptApplyChatWindowAlignment === "function") {
+      cgptApplyChatWindowAlignment({ chatWindowLeftAligned: nextValue });
+    }
+  });
+  row.appendChild(checkbox);
+
+  const text = document.createElement("span");
+  text.textContent = "Left align";
+  text.style.fontSize = "11px";
+  text.style.lineHeight = "1.3";
+  if (typeof cgptApplyPanelTextTone === "function") {
+    cgptApplyPanelTextTone(text, "muted");
+  }
+  row.appendChild(text);
+
+  return row;
 }
 
 function createViewModeButtonsRow() {
@@ -60,7 +108,7 @@ function applyViewModeToAll(mode) {
 
 function createCodeBlockReapplyButton() {
   const button = createPanelButton("Reapply", "secondary");
-  button.title = "Rebuild code block decorations after temporary layout shifts";
+  button.title = "Rebuild helper decorations and resync visible chat layout";
   button.addEventListener("click", () => {
     requestCodeSaverReapply();
   });
@@ -68,14 +116,38 @@ function createCodeBlockReapplyButton() {
 }
 
 function requestCodeSaverReapply() {
+  if (typeof cgptRefreshChatWindowAlignment === "function") {
+    cgptRefreshChatWindowAlignment(document);
+  }
+  if (typeof resetChatLogEntries === "function" && typeof captureChatLogsFromNode === "function") {
+    resetChatLogEntries();
+    captureChatLogsFromNode(document);
+  }
   if (typeof cgptReapplyCodeSaverDecorations === "function") {
     cgptReapplyCodeSaverDecorations(document);
   } else if (typeof decorateCodeBlocks === "function") {
     decorateCodeBlocks(document);
   }
+  requestHeadingFoldReapply();
   if (typeof showToast === "function") {
-    showToast("Reapplied code block decorations.", "success");
+    showToast("Reapplied helper view.", "success");
   }
+}
+
+function requestHeadingFoldReapply() {
+  if (
+    typeof applyHeadingFold !== "function" ||
+    typeof cgptShouldApplyHeadingFold !== "function" ||
+    !document ||
+    typeof document.querySelectorAll !== "function"
+  ) {
+    return;
+  }
+  document.querySelectorAll(".cgpt-helper-message-body").forEach((body) => {
+    if (cgptShouldApplyHeadingFold(body)) {
+      applyHeadingFold(body, 1);
+    }
+  });
 }
 
 function createHeadingViewSection() {
@@ -122,6 +194,8 @@ function requestAllHeadingFoldChanges(shouldExpand) {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
+    createChatWindowAlignmentControl,
     requestCodeSaverReapply,
+    requestHeadingFoldReapply,
   };
 }

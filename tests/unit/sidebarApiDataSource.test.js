@@ -167,7 +167,7 @@ test("cgptFetchSidebarApiSnapshot returns a normalized API snapshot", async () =
         { ok: true, status: 200, body: { accessToken: "token-1" } },
       ],
       [
-        "https://chatgpt.com/backend-api/projects?limit=100&offset=0",
+        "https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=5&limit=20",
         {
           ok: true,
           status: 200,
@@ -215,6 +215,10 @@ test("cgptFetchSidebarApiSnapshot returns a normalized API snapshot", async () =
     assert.equal(result.snapshot.projects.length, 1);
     assert.equal(result.snapshot.conversations.length, 1);
     assert.equal(result.snapshot.conversations[0].projectName, "Project Alpha");
+    assert.ok(result.snapshot.requestTrace.total > 0);
+    assert.equal(result.snapshot.requestTrace.byPhase.session, 1);
+    assert.ok(result.snapshot.requestTrace.byPhase.projects_probe >= 1);
+    assert.ok(result.snapshot.requestTrace.byPhase.conversations_probe >= 1);
   } finally {
     cleanupWindowStub();
   }
@@ -229,7 +233,7 @@ test("cgptFetchSidebarApiSnapshot enriches slug-like project names from project 
         { ok: true, status: 200, body: { accessToken: "token-1" } },
       ],
       [
-        "https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=5",
+        "https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=5&limit=20",
         {
           ok: true,
           status: 200,
@@ -304,7 +308,7 @@ test("cgptFetchSidebarApiSnapshot merges nested project conversations even when 
         { ok: true, status: 200, body: { accessToken: "token-1" } },
       ],
       [
-        "https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=5",
+        "https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=5&limit=20",
         {
           ok: true,
           status: 200,
@@ -378,7 +382,7 @@ test("cgptFetchSidebarApiSnapshot reads unopened project conversations from proj
         { ok: true, status: 200, body: { accessToken: "token-1" } },
       ],
       [
-        "https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=5",
+        "https://chatgpt.com/backend-api/gizmos/snorlax/sidebar?owned_only=true&conversations_per_gizmo=5&limit=20",
         {
           ok: true,
           status: 200,
@@ -502,17 +506,7 @@ test("cgptFetchSidebarApiSnapshot records project API sweep diagnostics and pref
         },
       ],
       [
-        "https://chatgpt.com/backend-api/gizmos/proj-1/conversations?cursor=0&limit=5&owned_only=true",
-        {
-          ok: false,
-          status: 422,
-          body: {
-            detail: "invalid query",
-          },
-        },
-      ],
-      [
-        "https://chatgpt.com/backend-api/gizmos/proj-1/conversations?cursor=0&limit=20&owned_only=true",
+        "https://chatgpt.com/backend-api/gizmos/proj-1/conversations?cursor=0&limit=100&owned_only=true",
         {
           ok: true,
           status: 200,
@@ -581,15 +575,15 @@ test("cgptFetchSidebarApiSnapshot records project API sweep diagnostics and pref
     assert.equal(result.snapshot.projectApiSweep[0].detailConversationCount, 1);
     assert.equal(result.snapshot.projectApiSweep[0].endpointConversationCount, 1);
     assert.equal(result.snapshot.projectApiSweep[0].detailResolved, true);
-    assert.equal(result.snapshot.projectApiSweep[0].conversationTried[0].status, 422);
-    assert.equal(result.snapshot.projectApiSweep[0].conversationTried[0].payloadMessage, "invalid query");
+    assert.equal(result.snapshot.projectApiSweep[0].conversationTried[0].status, 200);
+    assert.equal(result.snapshot.projectApiSweep[0].conversationTried[0].itemCount, 1);
     const successfulConversationProbe = result.snapshot.projectApiSweep[0].conversationTried.find(
-      (entry) => entry.url === "https://chatgpt.com/backend-api/gizmos/proj-1/conversations?cursor=0&limit=20&owned_only=true"
+      (entry) => entry.url === "https://chatgpt.com/backend-api/gizmos/proj-1/conversations?cursor=0&limit=100&owned_only=true"
     );
     assert.ok(successfulConversationProbe);
     assert.equal(successfulConversationProbe.itemCount, 1);
     assert.equal(
-      seenUrls.includes("https://chatgpt.com/backend-api/gizmos/proj-1/conversations?cursor=0&limit=20&owned_only=true"),
+      seenUrls.includes("https://chatgpt.com/backend-api/gizmos/proj-1/conversations?cursor=0&limit=100&owned_only=true"),
       true
     );
   } finally {
@@ -645,7 +639,7 @@ test("cgptFetchSidebarApiSnapshot keeps projects available when the general conv
         },
       ],
       [
-        "https://chatgpt.com/backend-api/gizmos/proj-1/conversations?cursor=0&limit=5&owned_only=true",
+        "https://chatgpt.com/backend-api/gizmos/proj-1/conversations?cursor=0&limit=100&owned_only=true",
         {
           ok: true,
           status: 200,

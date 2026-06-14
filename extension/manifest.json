@@ -33,6 +33,7 @@
         "content/state.js",
         "content/extensionToggle.js",
         "content/viewSettings.js",
+        "content/chatWindowAlignment.js",
         "content/saveOptions.js",
         "content/lightweightModeSettings.js",
         "shared/filePathValidation.js",

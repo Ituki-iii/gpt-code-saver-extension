@@ -330,6 +330,7 @@ function cgptBuildCodeMetaInfoText(content) {
 }
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
+    cgptCreateSingleLinePreview,
     cgptExtractFormattedCodeBlocksFromElement,
     cgptExtractCodeBlockLanguage,
     cgptBuildUnnamedCodeBlockLabel,

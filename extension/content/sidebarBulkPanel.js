@@ -98,24 +98,35 @@ async function cgptExportSidebarApiDebug() {
   const diagnostics =
     snapshot.diagnostics ||
     (typeof cgptGetSidebarApiDiagnostics === "function" ? cgptGetSidebarApiDiagnostics() : null);
-  const payload = diagnostics || {
-    timestamp: new Date().toISOString(),
-    phase: "snapshot",
-    authMode: "unknown",
-    status: 0,
-    endpoint: "",
-    message: snapshot.sidebarFound
-      ? ((Array.isArray(snapshot.projects) && snapshot.projects.length > 0)
-          ? "snapshot_available_without_diagnostics"
-          : "api_projects_missing_from_snapshot")
-      : "no_api_diagnostics_yet",
-    endpointTried: [],
-    snapshotSummary: cgptBuildSidebarBulkDebugSnapshotSummary(snapshot),
-    projectApiSweep: snapshot.projectApiSweep || null,
-    projectIframeSweep: snapshot.projectIframeSweep || null,
-    projects: cgptSerializeSidebarBulkDebugProjects(snapshot.projects),
-    conversations: cgptSerializeSidebarBulkDebugConversations(snapshot.conversations),
-  };
+  const payload = diagnostics
+    ? {
+        ...diagnostics,
+        snapshotSummary: cgptBuildSidebarBulkDebugSnapshotSummary(snapshot),
+        requestTrace: snapshot.requestTrace || null,
+        projectApiSweep: snapshot.projectApiSweep || null,
+        projectIframeSweep: snapshot.projectIframeSweep || null,
+        projects: cgptSerializeSidebarBulkDebugProjects(snapshot.projects),
+        conversations: cgptSerializeSidebarBulkDebugConversations(snapshot.conversations),
+      }
+    : {
+        timestamp: new Date().toISOString(),
+        phase: "snapshot",
+        authMode: "unknown",
+        status: 0,
+        endpoint: "",
+        message: snapshot.sidebarFound
+          ? ((Array.isArray(snapshot.projects) && snapshot.projects.length > 0)
+              ? "snapshot_available_without_diagnostics"
+              : "api_projects_missing_from_snapshot")
+          : "no_api_diagnostics_yet",
+        endpointTried: [],
+        snapshotSummary: cgptBuildSidebarBulkDebugSnapshotSummary(snapshot),
+        requestTrace: snapshot.requestTrace || null,
+        projectApiSweep: snapshot.projectApiSweep || null,
+        projectIframeSweep: snapshot.projectIframeSweep || null,
+        projects: cgptSerializeSidebarBulkDebugProjects(snapshot.projects),
+        conversations: cgptSerializeSidebarBulkDebugConversations(snapshot.conversations),
+      };
   await cgptExportSidebarBulkDebugPayload(payload, {
     copied: "API debug copied to clipboard.",
     downloaded: "API debug downloaded.",
@@ -226,7 +237,7 @@ function cgptCreateSidebarBulkPanel() {
   refreshButton.id = "cgpt-helper-sidebar-bulk-refresh";
   refreshButton.addEventListener("click", () => {
     if (typeof cgptRefreshSidebarConversationSnapshot === "function") {
-      cgptRefreshSidebarConversationSnapshot(document);
+      cgptRefreshSidebarConversationSnapshot(document, { forceRefresh: true });
     }
     cgptRenderSidebarBulkPanel();
   });
@@ -419,7 +430,7 @@ function cgptWatchSidebarProjectCreationDialog(panel) {
     clearInterval(panel.__cgptSidebarProjectDialogWatchTimer);
     panel.__cgptSidebarProjectDialogWatchTimer = null;
     if (typeof cgptRefreshSidebarConversationSnapshot === "function") {
-      cgptRefreshSidebarConversationSnapshot(document);
+      cgptRefreshSidebarConversationSnapshot(document, { forceRefresh: true });
     }
     const snapshot =
       typeof cgptGetSidebarConversationSnapshot === "function"
@@ -483,7 +494,7 @@ async function cgptHandleSidebarConversationRename(conversation) {
       cgptSetSidebarBulkRunningAction("");
     }
     if (typeof cgptRefreshSidebarConversationSnapshot === "function") {
-      cgptRefreshSidebarConversationSnapshot(document);
+      cgptRefreshSidebarConversationSnapshot(document, { forceRefresh: true });
     }
     cgptRenderSidebarBulkPanel();
   }
@@ -752,7 +763,7 @@ async function cgptHandleSidebarBulkAction(action) {
       cgptSetSidebarBulkRunningAction("");
     }
     if (typeof cgptRefreshSidebarConversationSnapshot === "function") {
-      cgptRefreshSidebarConversationSnapshot(document);
+      cgptRefreshSidebarConversationSnapshot(document, { forceRefresh: true });
     }
     if (
       typeof cgptGetSidebarConversationSnapshot === "function" &&
@@ -805,7 +816,7 @@ async function cgptHandleSidebarBulkTitleUpdate() {
       cgptSetSidebarBulkRunningAction("");
     }
     if (typeof cgptRefreshSidebarConversationSnapshot === "function") {
-      cgptRefreshSidebarConversationSnapshot(document);
+      cgptRefreshSidebarConversationSnapshot(document, { forceRefresh: true });
     }
     cgptRenderSidebarBulkPanel();
   }
@@ -822,11 +833,11 @@ function cgptRenderSidebarBulkProjectControls(panel, snapshot, state) {
     host.replaceChildren();
     row = document.createElement("div");
     row.dataset.cgptProjectControlsRow = "1";
-  row.style.display = "flex";
-  row.style.flexDirection = "row";
-  row.style.gap = "6px";
-  row.style.alignItems = "center";
-  row.style.flexWrap = "wrap";
+    row.style.display = "flex";
+    row.style.flexDirection = "row";
+    row.style.gap = "6px";
+    row.style.alignItems = "center";
+    row.style.flexWrap = "wrap";
 
     select = document.createElement("select");
     select.id = "cgpt-helper-sidebar-bulk-project-select";
@@ -886,6 +897,13 @@ function cgptRenderSidebarBulkProjectControls(panel, snapshot, state) {
   }
   select.value = currentValue;
   cgptSyncSidebarProjectSelectEnabled(panel, snapshot, state);
+}
+
+function cgptGetSidebarBulkLayoutMode(panel) {
+  const width = panel && typeof panel.getBoundingClientRect === "function"
+    ? panel.getBoundingClientRect().width
+    : 0;
+  return width > 0 && width < 700 ? "compact" : "regular";
 }
 
 function cgptRenderSidebarBulkControls(panel, visibleConversations, state) {
@@ -1066,6 +1084,8 @@ function cgptRenderSidebarBulkTitleBatchControls(panel, state) {
 function cgptRenderSidebarBulkList(panel, visibleConversations, state) {
   const list = panel.querySelector("#cgpt-helper-sidebar-bulk-list");
   if (!list) return;
+  const layoutMode = cgptGetSidebarBulkLayoutMode(panel);
+  const isCompactLayout = layoutMode === "compact";
   const previousScrollTop = list.scrollTop;
   list.replaceChildren();
   if (!visibleConversations.length) {
@@ -1083,7 +1103,9 @@ function cgptRenderSidebarBulkList(panel, visibleConversations, state) {
   visibleConversations.forEach((conversation) => {
     const row = document.createElement("div");
     row.style.display = "grid";
-    row.style.gridTemplateColumns = "18px minmax(0, 1fr) 240px";
+    row.style.gridTemplateColumns = isCompactLayout
+      ? "18px minmax(0, 1fr) minmax(120px, 180px)"
+      : "18px minmax(0, 1fr) minmax(180px, 240px)";
     row.style.gap = "6px";
     row.style.alignItems = "center";
     row.style.padding = "3px 0";
@@ -1115,8 +1137,10 @@ function cgptRenderSidebarBulkList(panel, visibleConversations, state) {
 
     const titleRow = document.createElement("div");
     titleRow.style.display = "grid";
-    titleRow.style.gridTemplateColumns = "120px minmax(0, 1fr)";
-    titleRow.style.alignItems = "center";
+    titleRow.style.gridTemplateColumns = isCompactLayout
+      ? "88px minmax(0, 1fr)"
+      : "120px minmax(0, 1fr)";
+    titleRow.style.alignItems = "flex-start";
     titleRow.style.gap = "4px";
     titleRow.style.minWidth = "0";
     titleRow.style.width = "100%";
@@ -1127,11 +1151,11 @@ function cgptRenderSidebarBulkList(panel, visibleConversations, state) {
     projectPrefix.title = conversation.projectName ? `Project: ${conversation.projectName}` : "No project";
     projectPrefix.style.fontSize = "11px";
     projectPrefix.style.lineHeight = "1.2";
-    projectPrefix.style.whiteSpace = "nowrap";
-    projectPrefix.style.overflow = "hidden";
-    projectPrefix.style.textOverflow = "ellipsis";
-    projectPrefix.style.width = "120px";
-    projectPrefix.style.maxWidth = "120px";
+    projectPrefix.style.whiteSpace = "normal";
+    projectPrefix.style.overflowWrap = "anywhere";
+    projectPrefix.style.wordBreak = "break-word";
+    projectPrefix.style.width = "100%";
+    projectPrefix.style.maxWidth = "100%";
     projectPrefix.style.minWidth = "0";
     if (typeof cgptApplyPanelTextTone === "function") {
       cgptApplyPanelTextTone(projectPrefix, "muted");
@@ -1140,10 +1164,11 @@ function cgptRenderSidebarBulkList(panel, visibleConversations, state) {
 
     const titleActions = document.createElement("div");
     titleActions.style.display = "flex";
-    titleActions.style.alignItems = "center";
+    titleActions.style.alignItems = "flex-start";
     titleActions.style.gap = "4px";
     titleActions.style.minWidth = "0";
     titleActions.style.overflow = "hidden";
+    titleActions.style.flexWrap = "wrap";
 
     const title = document.createElement("div");
     title.textContent = conversation.title || "(untitled chat)";
@@ -1152,12 +1177,12 @@ function cgptRenderSidebarBulkList(panel, visibleConversations, state) {
     title.style.fontSize = "12px";
     title.style.lineHeight = "1.25";
     title.style.minWidth = "0";
-    title.style.flex = "0 1 auto";
-    title.style.display = "inline-block";
+    title.style.flex = "1 1 auto";
+    title.style.display = "block";
     title.style.maxWidth = "100%";
-    title.style.whiteSpace = "nowrap";
-    title.style.overflow = "hidden";
-    title.style.textOverflow = "ellipsis";
+    title.style.whiteSpace = "normal";
+    title.style.overflowWrap = "anywhere";
+    title.style.wordBreak = "break-word";
     titleActions.appendChild(title);
 
     const rowActionDisabled = state.runningAction !== "";
@@ -1197,11 +1222,10 @@ function cgptRenderSidebarBulkList(panel, visibleConversations, state) {
     metaColumn.style.alignItems = "flex-end";
     metaColumn.style.justifyContent = "center";
     metaColumn.style.textAlign = "right";
-    metaColumn.style.width = "240px";
-    metaColumn.style.minWidth = "240px";
-    metaColumn.style.maxWidth = "240px";
-    metaColumn.style.gap = "2px";
+    metaColumn.style.width = "100%";
     metaColumn.style.minWidth = "0";
+    metaColumn.style.maxWidth = "100%";
+    metaColumn.style.gap = "2px";
 
     const idMeta = document.createElement("div");
     idMeta.textContent = conversation.conversationId || conversation.id;

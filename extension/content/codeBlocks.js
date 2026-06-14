@@ -88,7 +88,7 @@ function cgptFindNativeHeaderLabelContainer(pre) {
 function cgptSyncCompactHeaderPath(pre, metadata, mode) {
   if (!pre) return;
   const existingNodes = Array.from(pre.querySelectorAll("[data-cgpt-code-file-path='1']"));
-  if (mode !== "compact" || !metadata || !metadata.filePath) {
+  if (!metadata || !metadata.filePath) {
     existingNodes.forEach((node) => node.remove());
     pre.querySelectorAll("[data-cgpt-code-path-host='1']").forEach((node) => {
       delete node.dataset.cgptCodePathHost;
@@ -102,10 +102,13 @@ function cgptSyncCompactHeaderPath(pre, metadata, mode) {
     return;
   }
 
+  let keptNode = null;
   existingNodes.forEach((node) => {
-    if (!container.contains(node)) {
+    if (!container.contains(node) || keptNode) {
       node.remove();
+      return;
     }
+    keptNode = node;
   });
 
   pre.querySelectorAll("[data-cgpt-code-path-host='1']").forEach((node) => {
@@ -115,7 +118,8 @@ function cgptSyncCompactHeaderPath(pre, metadata, mode) {
   });
 
   container.dataset.cgptCodePathHost = "1";
-  const existing = container.querySelector(":scope > [data-cgpt-code-file-path='1']");
+  const existing =
+    keptNode || container.querySelector(":scope > [data-cgpt-code-file-path='1']");
 
   const pathEl = existing || document.createElement("span");
   pathEl.dataset.cgptCodeFilePath = "1";
@@ -154,6 +158,14 @@ function cgptCollectDecoratablePres(root) {
 
   const addPre = (pre) => {
     if (!pre || seen.has(pre)) return;
+    if (
+      typeof pre.querySelector === "function" &&
+      Array.from(pre.querySelectorAll("pre")).some((nestedPre) =>
+        nestedPre !== pre && cgptGetDecoratableCodeContent(nestedPre)
+      )
+    ) {
+      return;
+    }
     if (!cgptGetDecoratableCodeContent(pre)) return;
     seen.add(pre);
     collected.push(pre);
@@ -247,7 +259,7 @@ function tryDecorateSingleCodeBlock(pre) {
       state.viewButtons = { shrinkBtn, expandBtn };
       state.metadata = metadata || null;
     }
-    cgptSetPreViewMode(pre, CGPT_VIEW_MODE.COMPACT);
+    cgptSetPreViewMode(pre, CGPT_VIEW_MODE.EXPANDED);
   }
 
   if (state) {

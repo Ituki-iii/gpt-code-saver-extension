@@ -86,3 +86,28 @@ test('cgptParseCodeBlockMetadata supports CodeMirror-style content containers', 
     metadataLine: '// file: src/cm.js',
   });
 });
+
+
+test('cgptGetRawCodeText ignores helper action text in cloned code containers', () => {
+  const clone = {
+    textContent: 'echo okSaveSave AsCopyCompactExpand',
+    innerText: '',
+    querySelectorAll: (selector) => {
+      assert.match(selector, /data-cgpt-code-actions/);
+      return [
+        {
+          remove: () => {
+            clone.textContent = 'echo ok';
+          },
+        },
+      ];
+    },
+  };
+  const code = {
+    cloneNode: () => clone,
+    innerText: 'echo okSaveSave AsCopyCompactExpand',
+    textContent: 'echo okSaveSave AsCopyCompactExpand',
+  };
+
+  assert.strictEqual(cgptGetRawCodeText(code), 'echo ok');
+});

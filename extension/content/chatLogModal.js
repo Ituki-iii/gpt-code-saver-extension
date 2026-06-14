@@ -1,4 +1,4 @@
-const CHAT_LOG_PREVIEW_LINE_LIMIT = 1;
+const CHAT_LOG_PREVIEW_LINE_LIMIT = 0;
 
 function openChatLogModal() {
   if (document.getElementById("cgpt-helper-chatlog-modal")) return;
@@ -328,6 +328,8 @@ function cgptCreateChatLogSectionTitle(label, timestamp) {
 function cgptCreateChatLogMessageBody(entry) {
   const messageBody = document.createElement("div");
   messageBody.style.whiteSpace = "pre-wrap";
+  messageBody.style.overflowWrap = "anywhere";
+  messageBody.style.wordBreak = "break-word";
   messageBody.style.paddingLeft = "2px";
   messageBody.style.color = "inherit";
   if (typeof cgptApplyTextScale === "function") {
@@ -336,7 +338,7 @@ function cgptCreateChatLogMessageBody(entry) {
     messageBody.style.fontSize = "13px";
     messageBody.style.lineHeight = "1.5";
   }
-  const messageText = entry.text || "(no text)";
+  const messageText = cgptNormalizeChatLogLineEndings(entry.text || "(no text)");
   messageBody.textContent = cgptCreateSingleLinePreview(messageText, CHAT_LOG_PREVIEW_LINE_LIMIT);
   return messageBody;
 }

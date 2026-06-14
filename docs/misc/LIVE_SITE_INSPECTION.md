@@ -37,74 +37,83 @@ CGPT_INSPECT_TARGET=sidebar npm run inspect:chatgpt:profile
 ## CDP Extension Reload Mode
 
 ログイン済み Chromium を CDP port 付きで使い、ローカルの unpacked extension を読み込んで Bulk Chats を実機確認する手順です。
-ChatGPT ログインや Cloudflare challenge は自動化せず、既存 profile を使います。
+ChatGPT ログインや Cloudflare challenge は自動化せず、永続 profile を使います。
 
-既存 Chromium が `--load-extension` なしで起動している場合、`chrome://extensions` から CDP だけで unpacked extension を後読み込みできないことがあります。
-その場合は同じ profile を `--load-extension` 付きで再起動します。
-
-```bash
-EXT=/home/codex/codex-work/chatgpt-code-saver/extension
-CHROME=/home/codex/.cache/ms-playwright/chromium-1161/chrome-linux/chrome
-PROFILE=/home/codex/.local/share/chatgpt-code-saver/chrome-profile
-CHAT_URL=https://chatgpt.com/
-
-# 既存 CDP Chromium を閉じる。必要なら現在 URL を控えてから実行する。
-node - <<'NODE'
-const { chromium } = require("playwright");
-(async () => {
-  const browser = await chromium.connectOverCDP("http://127.0.0.1:9222");
-  const session = await browser.newBrowserCDPSession();
-  await session.send("Browser.close");
-})().catch(() => {});
-NODE
-
-for i in $(seq 1 20); do
-  curl -sf http://127.0.0.1:9222/json/version >/dev/null || break
-  sleep 0.5
-done
-
-setsid -f "$CHROME" \
-  --user-data-dir="$PROFILE" \
-  --no-sandbox \
-  --disable-dev-shm-usage \
-  --disable-gpu \
-  --no-first-run \
-  --no-default-browser-check \
-  --ozone-platform=x11 \
-  --remote-debugging-address=127.0.0.1 \
-  --remote-debugging-port=9222 \
-  --disable-extensions-except="$EXT" \
-  --load-extension="$EXT" \
-  "$CHAT_URL" \
-  >/tmp/chatgpt-code-saver-chrome.log 2>&1
-
-for i in $(seq 1 60); do
-  curl -sf http://127.0.0.1:9222/json/version >/dev/null && break
-  sleep 0.5
-done
-```
-
-拡張が読み込まれたか確認します。
+再起動後や別環境で同じ状態を作る場合は、起動ツールを使います。
 
 ```bash
-node - <<'NODE'
-(async () => {
-  const targets = await fetch("http://127.0.0.1:9222/json/list").then((r) => r.json());
-  console.log(JSON.stringify(
-    targets
-      .map((target) => ({ type: target.type, title: target.title, url: target.url }))
-      .filter((target) => target.url.includes("chrome-extension://") || target.url.includes("chatgpt.com")),
-    null,
-    2
-  ));
-})();
-NODE
+npm run open:chatgpt:extension-cdp
 ```
 
-期待値:
+すでに手動で起動済みの Chromium がある場合は、再接続専用の検証コマンドを使います。
 
-- `service_worker` target に `chrome-extension://.../background/index.js` が出る
-- ChatGPT page target が出る
+```bash
+npm run inspect:chatgpt:extension-cdp
+```
+
+このツールは以下を行います。
+
+- 既定では `http://127.0.0.1:9222` の既存 CDP Chromium を閉じる
+- Playwright Chromium を可視起動する
+- `extension/` を `--disable-extensions-except` と `--load-extension` で読み込む
+- `https://chatgpt.com/` を開く
+- CDP target と ChatGPT ページ内の `cgpt-helper-*` UI 挿入状態を JSON で出力する
+
+既定値:
+
+- `CGPT_CHROMIUM_EXECUTABLE=$HOME/.cache/ms-playwright/chromium-1161/chrome-linux/chrome`
+- `CGPT_CHROMIUM_USER_DATA_DIR=$HOME/.local/share/chatgpt-code-saver/chrome-profile`
+- `CGPT_EXTENSION_PATH=<repo>/extension`
+- `CGPT_DEBUG_URL=https://chatgpt.com/`
+- `CGPT_CDP_ADDRESS=127.0.0.1`
+- `CGPT_CDP_PORT=9222`
+- `CGPT_OZONE_PLATFORM=x11`
+- `CGPT_CLOSE_EXISTING_CDP=1`
+- `CGPT_LOAD_EXTENSION=1`
+- `CGPT_ENABLE_CDP=1`
+- `CGPT_CHROME_LOG=/tmp/chatgpt-code-saver-chrome.log`
+- 再接続専用は `CGPT_ATTACH_ONLY=1` を使う
+
+別の Chromium や profile を使う例:
+
+```bash
+CGPT_CHROMIUM_EXECUTABLE=/path/to/chrome \
+CGPT_CHROMIUM_USER_DATA_DIR=/path/to/chrome-profile \
+CGPT_CDP_PORT=9333 \
+npm run open:chatgpt:extension-cdp
+```
+
+Cloudflare verify がループする場合は、まず同じ profile を拡張なし、CDP なしで開き、ブラウザ上で手動通過します。
+
+```bash
+npm run open:chatgpt:challenge
+```
+
+通過後、同じ profile を使って拡張ありで起動し直します。
+
+```bash
+npm run open:chatgpt:extension-cdp
+```
+
+`open:chatgpt:challenge` は `CGPT_LOAD_EXTENSION=0 CGPT_ENABLE_CDP=0` を指定します。CDP 検証出力は出ませんが、Cloudflare の通過状態を profile に保存するための入口です。
+
+`inspect:chatgpt:extension-cdp` は既存の CDP Chromium にだけ接続します。初回起動とログインだけ手動で済ませた後の再確認に使います。
+
+起動後の確認ポイント:
+
+- `relevantTargets` に ChatGPT page target が出る
+- `pageState.hasBulkToggle: true` または `pageState.hasPanelToggle: true` が出る
+- `pageState.helperIds` に `cgpt-helper-sidebar-bulk-toggle` などが出る
+
+MV3 の service worker は休止していると `chrome-extension://.../background/index.js` target に出ないことがあります。その場合でも、ChatGPT ページ上に helper UI が挿入されていれば content script は読み込まれています。
+
+既存 Chromium を閉じたくない場合:
+
+```bash
+CGPT_CLOSE_EXISTING_CDP=0 CGPT_CDP_PORT=9333 npm run open:chatgpt:extension-cdp
+```
+
+ログインや Cloudflare challenge が表示された場合は、起動したブラウザ上で手動完了します。完了後、同じ profile を使うため次回以降もこの起動ツールで再利用できます。
 
 Bulk Chats の最小動作確認:
 
