@@ -1,6 +1,7 @@
 const DEFAULT_VIEW_SETTINGS = {
   compactLineCount: 1,
   chatWindowLeftAligned: false,
+  chatBubbleWidthPx: 960,
 };
 
 let cgptViewSettings = { ...DEFAULT_VIEW_SETTINGS };
@@ -17,6 +18,14 @@ function cgptNormalizeLineCount(value, fallback, { min = 1, max = 200 } = {}) {
   return Math.min(parsed, max);
 }
 
+function cgptNormalizePixelWidth(value, fallback, { min = 320 } = {}) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < min) {
+    return fallback;
+  }
+  return parsed;
+}
+
 function cgptMergeViewSettings(nextSettings) {
   if (!nextSettings || typeof nextSettings !== "object") {
     return;
@@ -30,6 +39,12 @@ function cgptMergeViewSettings(nextSettings) {
   }
   if (typeof nextSettings.chatWindowLeftAligned !== "undefined") {
     cgptViewSettings.chatWindowLeftAligned = nextSettings.chatWindowLeftAligned === true;
+  }
+  if (typeof nextSettings.chatBubbleWidthPx !== "undefined") {
+    cgptViewSettings.chatBubbleWidthPx = cgptNormalizePixelWidth(
+      nextSettings.chatBubbleWidthPx,
+      DEFAULT_VIEW_SETTINGS.chatBubbleWidthPx
+    );
   }
 }
 
@@ -81,6 +96,7 @@ if (typeof module !== "undefined" && module.exports) {
     DEFAULT_VIEW_SETTINGS,
     cgptGetViewSettings,
     cgptNormalizeLineCount,
+    cgptNormalizePixelWidth,
     cgptMergeViewSettings,
     cgptLoadViewSettings,
     cgptUpdateViewSettings,

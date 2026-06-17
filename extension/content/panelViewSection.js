@@ -2,6 +2,7 @@ function createViewSection() {
   const viewSection = createPanelSection("View Controls");
   viewSection.appendChild(createDisplayActionsSubLabel("Chat"));
   viewSection.appendChild(createChatWindowAlignmentControl());
+  viewSection.appendChild(createChatBubbleWidthControl());
   viewSection.appendChild(createDisplayActionsSubLabel("Code Blocks"));
   viewSection.appendChild(createViewModeButtonsRow());
   viewSection.appendChild(createCodeBlockReapplyButton());
@@ -53,6 +54,115 @@ function createChatWindowAlignmentControl() {
   row.appendChild(text);
 
   return row;
+}
+
+function createChatBubbleWidthControl() {
+  const settings =
+    typeof cgptGetViewSettings === "function"
+      ? cgptGetViewSettings()
+      : { chatBubbleWidthPx: 960 };
+  const initialWidth = Number.parseInt(settings.chatBubbleWidthPx, 10) || 960;
+
+  const container = document.createElement("div");
+  container.style.display = "flex";
+  container.style.flexDirection = "column";
+  container.style.gap = "4px";
+  container.style.minWidth = "0";
+
+  const presetRow = document.createElement("div");
+  presetRow.style.display = "flex";
+  presetRow.style.flexDirection = "row";
+  presetRow.style.flexWrap = "nowrap";
+  presetRow.style.gap = "4px";
+  presetRow.style.width = "100%";
+  presetRow.style.minWidth = "0";
+
+  const inputRow = document.createElement("div");
+  inputRow.style.display = "flex";
+  inputRow.style.alignItems = "center";
+  inputRow.style.gap = "4px";
+  inputRow.style.minHeight = "28px";
+  inputRow.style.minWidth = "0";
+
+  const input = document.createElement("input");
+  input.type = "number";
+  input.min = "320";
+  input.step = "20";
+  input.value = `${initialWidth}`;
+  input.style.width = "72px";
+  input.style.height = "28px";
+  input.style.minHeight = "28px";
+  input.style.boxSizing = "border-box";
+  input.style.borderRadius = "4px";
+  input.style.padding = "0 6px";
+  input.style.fontSize = "11px";
+  input.style.textAlign = "right";
+  if (typeof cgptApplyPanelInputStyle === "function") {
+    cgptApplyPanelInputStyle(input);
+  } else {
+    input.style.border = "1px solid rgba(255,255,255,0.2)";
+    input.style.background = "#1f2937";
+    input.style.color = "#fff";
+  }
+
+  const unit = document.createElement("span");
+  unit.textContent = "px";
+  unit.style.fontSize = "11px";
+  unit.style.lineHeight = "28px";
+  if (typeof cgptApplyPanelTextTone === "function") {
+    cgptApplyPanelTextTone(unit, "muted");
+  }
+
+  const commitWidth = (widthPx) => {
+    const parsed = Number.parseInt(widthPx, 10);
+    const nextWidth = Number.isFinite(parsed) && parsed >= 320 ? parsed : 960;
+    input.value = `${nextWidth}`;
+    if (typeof cgptUpdateViewSettings === "function") {
+      cgptUpdateViewSettings({ chatBubbleWidthPx: nextWidth }, (updatedSettings) => {
+        const appliedWidth = updatedSettings.chatBubbleWidthPx || nextWidth;
+        input.value = `${appliedWidth}`;
+        if (typeof cgptApplyChatWindowAlignment === "function") {
+          cgptApplyChatWindowAlignment(updatedSettings);
+        }
+      });
+      return;
+    }
+    if (typeof cgptApplyChatWindowAlignment === "function") {
+      cgptApplyChatWindowAlignment({ chatBubbleWidthPx: nextWidth });
+    }
+  };
+
+  [720, 960, 1200].forEach((widthPx) => {
+    const button = createPanelButton(`${widthPx}`, "secondary");
+    button.dataset.cgptBubbleWidthPreset = `${widthPx}`;
+    button.style.flex = "1 1 0";
+    button.style.minWidth = "0";
+    button.style.padding = "0 4px";
+    button.title = `Set chat width to ${widthPx}px`;
+    button.addEventListener("click", () => commitWidth(widthPx));
+    presetRow.appendChild(button);
+  });
+
+  const resetButton = createPanelButton("Reset", "secondary");
+  resetButton.style.flex = "1";
+  resetButton.title = "Reset chat width to 960px";
+  resetButton.addEventListener("click", () => commitWidth(960));
+
+  const applyButton = createPanelButton("Apply", "secondary");
+  applyButton.style.flex = "1";
+  applyButton.title = "Apply the entered chat width";
+  applyButton.addEventListener("click", () => commitWidth(input.value));
+
+  input.addEventListener("change", () => commitWidth(input.value));
+  input.addEventListener("blur", () => commitWidth(input.value));
+
+  inputRow.appendChild(input);
+  inputRow.appendChild(unit);
+  inputRow.appendChild(applyButton);
+  inputRow.appendChild(resetButton);
+  container.appendChild(presetRow);
+  container.appendChild(inputRow);
+  return container;
 }
 
 function createViewModeButtonsRow() {
@@ -195,6 +305,7 @@ function requestAllHeadingFoldChanges(shouldExpand) {
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     createChatWindowAlignmentControl,
+    createChatBubbleWidthControl,
     requestCodeSaverReapply,
     requestHeadingFoldReapply,
   };

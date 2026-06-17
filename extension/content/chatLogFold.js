@@ -253,20 +253,13 @@ function ensureChatLogFoldStyle() {
   style.textContent = `
     .cgpt-helper-fold {
       position: relative;
-      border: 1px solid rgba(100, 116, 139, 0.32);
+      border: 1px solid rgba(255, 255, 255, 0.16);
       border-radius: 10px;
       padding: 10px 10px 10px 14px;
       margin-top: 10px;
-      background: rgba(148, 163, 184, 0.06);
+      background: transparent;
       color: inherit;
       width: 100%;
-      max-width: 100%;
-      min-width: 0;
-      box-sizing: border-box;
-    }
-    .dark .cgpt-helper-fold {
-      border-color: rgba(255, 255, 255, 0.16);
-      background: transparent;
     }
     .cgpt-helper-fold-nested {
       padding-left: calc(${CGPT_FOLD_CONTENT_LEFT_BASE_PX}px + var(--cgpt-helper-fold-indent, 0px));
@@ -338,36 +331,6 @@ function ensureChatLogFoldStyle() {
       flex-direction: column;
       gap: 8px;
       color: inherit;
-      max-width: 100%;
-      min-width: 0;
-      overflow-x: visible;
-    }
-    .cgpt-helper-fold-body > * {
-      min-width: 0;
-      max-width: 100%;
-    }
-    .cgpt-helper-fold-body table {
-      width: max-content;
-      max-width: none;
-    }
-    .cgpt-helper-fold-body [class*="tableContainer"] {
-      width: 100% !important;
-      max-width: 100% !important;
-      min-width: 0 !important;
-      margin-left: 0 !important;
-      padding-left: 0 !important;
-      overflow-x: visible !important;
-      overflow-y: visible !important;
-    }
-    .cgpt-helper-fold-body [class*="tableWrapper"] {
-      width: 100% !important;
-      max-width: 100% !important;
-      min-width: 0 !important;
-      margin-left: 0 !important;
-      padding-left: 0 !important;
-      align-self: stretch;
-      overflow-x: auto !important;
-      overflow-y: visible !important;
     }
     .cgpt-helper-fold-collapsed .cgpt-helper-fold-body {
       display: none;
@@ -389,36 +352,6 @@ function ensureChatLogFoldStyle() {
     }
     .cgpt-helper-heading-body {
       padding-left: 0;
-      max-width: 100%;
-      min-width: 0;
-      overflow-x: visible;
-    }
-    .cgpt-helper-heading-body > * {
-      min-width: 0;
-      max-width: 100%;
-    }
-    .cgpt-helper-heading-body table {
-      width: max-content;
-      max-width: none;
-    }
-    .cgpt-helper-heading-body [class*="tableContainer"] {
-      width: 100% !important;
-      max-width: 100% !important;
-      min-width: 0 !important;
-      margin-left: 0 !important;
-      padding-left: 0 !important;
-      overflow-x: visible !important;
-      overflow-y: visible !important;
-    }
-    .cgpt-helper-heading-body [class*="tableWrapper"] {
-      width: 100% !important;
-      max-width: 100% !important;
-      min-width: 0 !important;
-      margin-left: 0 !important;
-      padding-left: 0 !important;
-      align-self: stretch;
-      overflow-x: auto !important;
-      overflow-y: visible !important;
     }
     .cgpt-helper-heading-body > * {
       margin-top: 0;
@@ -429,7 +362,7 @@ function ensureChatLogFoldStyle() {
     .cgpt-helper-heading-body > .cgpt-helper-heading-section {
       margin-left: ${CGPT_FOLD_GUIDE_STEP_PX}px;
     }
-    .cgpt-helper-heading-body > :not(.cgpt-helper-heading-section):not([class*="tableContainer"]):not([class*="tableWrapper"]) {
+    .cgpt-helper-heading-body > :not(.cgpt-helper-heading-section) {
       margin-left: ${CGPT_FOLD_GUIDE_STEP_PX}px;
       padding-left: 20px;
     }

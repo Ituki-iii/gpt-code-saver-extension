@@ -160,7 +160,6 @@ function cgptCreateChatLogList(entries, closeModal) {
 
 function cgptCreateChatLogEntryCard(entry, closeModal) {
   const card = cgptCreateChatLogEntryFold(entry, closeModal);
-
   if (entry && entry.role === "assistant") {
     const responseSection = cgptCreateChatLogAssistantSection(entry, closeModal);
     if (responseSection) {
