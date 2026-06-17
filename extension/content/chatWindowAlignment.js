@@ -5,7 +5,7 @@ const CGPT_DEFAULT_CHAT_BUBBLE_WIDTH_PX = 960;
 
 function cgptBuildChatWindowAlignmentCss() {
   return `
-body {
+:root {
   ${CGPT_CHAT_BUBBLE_WIDTH_VAR}: ${CGPT_DEFAULT_CHAT_BUBBLE_WIDTH_PX}px;
 }
 
@@ -75,6 +75,13 @@ function cgptApplyChatWindowAlignment(settings = {}, rootDocument = document) {
   const styleTarget = rootDocument.documentElement || rootDocument.body;
   if (styleTarget && styleTarget.style && typeof styleTarget.style.setProperty === "function") {
     styleTarget.style.setProperty(CGPT_CHAT_BUBBLE_WIDTH_VAR, `${widthPx}px`);
+  }
+  if (
+    rootDocument.body &&
+    rootDocument.body.style &&
+    typeof rootDocument.body.style.setProperty === "function"
+  ) {
+    rootDocument.body.style.setProperty(CGPT_CHAT_BUBBLE_WIDTH_VAR, `${widthPx}px`);
   }
   const enabled = settings.chatWindowLeftAligned === true;
   rootDocument.body.classList.toggle(CGPT_CHAT_LEFT_ALIGN_CLASS, enabled);

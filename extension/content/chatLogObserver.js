@@ -10,8 +10,23 @@ function startChatRouteWatcher() {
       currentConversationKey = key;
       resetChatLogEntries();
       captureChatLogsFromNode(document);
+      return;
+    }
+    if (
+      typeof captureChatLogsFromNode === "function" &&
+      cgptHasUntrackedChatMessages(document)
+    ) {
+      captureChatLogsFromNode(document);
     }
   }, 1000);
+}
+
+function cgptHasUntrackedChatMessages(root = document) {
+  return Boolean(
+    root &&
+      typeof root.querySelector === "function" &&
+      root.querySelector("[data-message-author-role]:not([data-cgpt-helper-chat-tracked='1'])")
+  );
 }
 
 function startChatLogMutationObserver() {
@@ -49,4 +64,10 @@ function getConversationKey() {
 
 function cgptSetCurrentConversationKey(value) {
   currentConversationKey = value || "";
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    cgptHasUntrackedChatMessages,
+  };
 }

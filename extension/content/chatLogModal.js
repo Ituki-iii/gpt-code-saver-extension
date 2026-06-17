@@ -1,4 +1,4 @@
-const CHAT_LOG_PREVIEW_LINE_LIMIT = 0;
+const CHAT_LOG_PREVIEW_LINE_LIMIT = 1;
 
 function openChatLogModal() {
   if (document.getElementById("cgpt-helper-chatlog-modal")) return;

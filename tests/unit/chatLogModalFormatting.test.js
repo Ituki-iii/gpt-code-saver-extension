@@ -82,10 +82,10 @@ test("extracts CodeMirror code blocks when pre code is absent", () => {
   assert.equal(blocks[0].language, "javascript");
 });
 
-test("cgptCreateSingleLinePreview preserves multiline content when line limit is disabled", () => {
+test("cgptCreateSingleLinePreview summarizes multiline content to the first line", () => {
   const { cgptCreateSingleLinePreview } = loadModule();
   assert.equal(
-    cgptCreateSingleLinePreview("line 1\nline 2\nline 3", 0),
-    "line 1\nline 2\nline 3"
+    cgptCreateSingleLinePreview("line 1\nline 2\nline 3", 1),
+    "line 1..."
   );
 });

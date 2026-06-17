@@ -10,6 +10,7 @@ function createDocumentStub() {
   const classes = new Set();
   const elementsById = new Map();
   const rootStyles = new Map();
+  const bodyStyles = new Map();
   const documentStub = {
     documentElement: {
       style: {
@@ -31,6 +32,14 @@ function createDocumentStub() {
       },
     },
     body: {
+      style: {
+        setProperty(name, value) {
+          bodyStyles.set(name, value);
+        },
+        getPropertyValue(name) {
+          return bodyStyles.get(name) || "";
+        },
+      },
       classList: {
         toggle(name, enabled) {
           if (enabled) {
@@ -77,6 +86,10 @@ test("cgptApplyChatWindowAlignment toggles the left align class", () => {
     documentStub.documentElement.style.getPropertyValue(CGPT_CHAT_BUBBLE_WIDTH_VAR),
     "1120px"
   );
+  assert.equal(
+    documentStub.body.style.getPropertyValue(CGPT_CHAT_BUBBLE_WIDTH_VAR),
+    "1120px"
+  );
 
   assert.equal(
     cgptApplyChatWindowAlignment({ chatWindowLeftAligned: false }, documentStub),
@@ -94,6 +107,7 @@ test("cgptBuildChatWindowAlignmentCss applies bubble width without broad mx-auto
   assert.match(css, /--thread-content-margin/);
   assert.match(css, /--thread-content-max-width/);
   assert.match(css, /--cgpt-helper-chat-bubble-width/);
+  assert.match(css, /:root/);
   assert.match(css, /user-message-bubble-color/);
   assert.match(css, /#prompt-textarea/);
   assert.match(css, /align-items:\s*flex-start/);
