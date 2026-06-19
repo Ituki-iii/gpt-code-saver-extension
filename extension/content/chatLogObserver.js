@@ -12,10 +12,7 @@ function startChatRouteWatcher() {
       captureChatLogsFromNode(document);
       return;
     }
-    if (
-      typeof captureChatLogsFromNode === "function" &&
-      cgptHasUntrackedChatMessages(document)
-    ) {
+    if (typeof captureChatLogsFromNode === "function" && document && document.body) {
       captureChatLogsFromNode(document);
     }
   }, 1000);

@@ -88,4 +88,8 @@ test("cgptCreateSingleLinePreview summarizes multiline content to the first line
     cgptCreateSingleLinePreview("line 1\nline 2\nline 3", 1),
     "line 1..."
   );
+  assert.equal(
+    cgptCreateSingleLinePreview("line 1\nline 2\nline 3\nline 4", 3),
+    "line 1\nline 2\nline 3..."
+  );
 });

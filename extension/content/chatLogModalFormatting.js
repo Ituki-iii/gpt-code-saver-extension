@@ -7,9 +7,9 @@ function cgptCreateSingleLinePreview(text, lineLimit = 1) {
   if (!lineLimit || lineLimit <= 0) return text;
   const normalized = cgptNormalizeChatLogLineEndings(text);
   const lines = normalized.split("\n");
-  const firstLine = lines[0] || "";
   const hasMore = lines.length > lineLimit;
-  return hasMore ? `${firstLine.trimEnd()}...` : firstLine;
+  const preview = lines.slice(0, lineLimit).join("\n").trimEnd();
+  return hasMore ? `${preview}...` : preview;
 }
 
 function cgptFormatChatLogTimestamp(ts) {

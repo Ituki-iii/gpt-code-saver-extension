@@ -236,6 +236,17 @@ npm run test:e2e:live
 ChatGPT の DOM に依存する改修では、fixture や実装を直す前に実サイトの状態を Playwright で確認します。
 特に Sidebar Bulk Chats、Chat Log、code block、share dialog、Project move は UI 変更の影響を受けやすいため、該当 feature の成果物 JSON を見てから selector や fixture を更新してください。
 
+#### Chat Log 回帰対応の再発防止
+
+Chat Log の欠落や role 誤判定を直す場合は、表示密度、余白、プレビュー行数などの見た目から触らず、まず発話抽出の単位と role 判定を確認します。
+
+- 実機確認では、バッジ数や領域数だけで判断しない。
+- 問題になっている本文が、ChatGPT 画面上で `user` / `assistant` のどちらの発話として存在するかを本文ベースで確認する。
+- Chat Log 側でも、同じ本文が同じ role の entry として出ているかを確認する。
+- `section[data-testid^="conversation-turn-"]` のような turn host と、その内側の `[data-message-author-role]` の関係を先に調べる。
+- プレビュー行数、カード余白、密度調整は、抽出と role 判定が正しいと確認できた後にだけ変更する。
+- 既存の Chat Log 機能、特に保存、fold、timestamp、コードブロック抽出の流れを置き換えない。必要な変更は発話 host の解決と role 判定に限定する。
+
 ```bash
 npm run inspect:chatgpt:anonymous
 CGPT_INSPECT_TARGET=sidebar npm run inspect:chatgpt:feature

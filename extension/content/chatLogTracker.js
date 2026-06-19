@@ -1,4 +1,5 @@
 const CHAT_LOG_SELECTOR = "[data-message-author-role]";
+const CHAT_LOG_TURN_SELECTOR = "section[data-testid^='conversation-turn-']";
 const chatLogEntries = [];
 const chatLogTrackedIds = new Set();
 const chatLogPendingFoldTimers = new Map();
@@ -9,6 +10,8 @@ let chatLogTimestampStyleInjected = false;
 const CHAT_LOG_FOLD_DELAY_MS = 120;
 const CHAT_LOG_FOLD_MAX_RETRIES = 8;
 const CHAT_LOG_FOLD_QUIET_PERIOD_MS = 1200;
+const CHAT_LOG_MESSAGE_BADGE_SELECTOR = "[data-cgpt-helper-chat-badge='1']";
+const CHAT_LOG_UPDATED_EVENT = "cgpt-helper-chatlog-updated";
 
 function cgptIsHelperManagedNode(node) {
   if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
@@ -169,6 +172,7 @@ function resetChatLogEntries() {
       delete el.dataset.cgptHelperChatTracked;
     });
   }
+  cgptNotifyChatLogUpdated();
 }
 
 function ensureChatLogHighlightStyle() {
@@ -220,8 +224,13 @@ function captureChatLogsFromNode(rootNode) {
   }
 
   if (rootNode.nodeType === Node.DOCUMENT_NODE) {
+    rootNode.querySelectorAll(CHAT_LOG_TURN_SELECTOR).forEach((el) => {
+      cgptProcessOrRefreshChatMessageElement(el);
+    });
     rootNode.querySelectorAll(CHAT_LOG_SELECTOR).forEach((el) => {
-      processChatMessageElement(el);
+      if (!el.closest(CHAT_LOG_TURN_SELECTOR)) {
+        cgptProcessOrRefreshChatMessageElement(el);
+      }
     });
     return;
   }
@@ -229,59 +238,142 @@ function captureChatLogsFromNode(rootNode) {
   if (rootNode.nodeType !== Node.ELEMENT_NODE) return;
   if (cgptIsHelperManagedNode(rootNode)) return;
 
-  const ownerMessage =
-    rootNode.matches && rootNode.matches(CHAT_LOG_SELECTOR)
-      ? rootNode
-      : typeof rootNode.closest === "function"
-        ? rootNode.closest(CHAT_LOG_SELECTOR)
-        : null;
+  const ownerMessage = cgptGetChatEntryHost(rootNode);
   if (ownerMessage && ownerMessage.dataset.cgptHelperChatTracked === "1") {
     cgptRefreshTrackedChatMessage(ownerMessage);
   }
 
-  if (rootNode.matches && rootNode.matches(CHAT_LOG_SELECTOR)) {
-    processChatMessageElement(rootNode);
+  if (rootNode.matches && (rootNode.matches(CHAT_LOG_TURN_SELECTOR) || rootNode.matches(CHAT_LOG_SELECTOR))) {
+    cgptProcessOrRefreshChatMessageElement(rootNode);
   }
+  rootNode.querySelectorAll(CHAT_LOG_TURN_SELECTOR).forEach((el) => {
+    cgptProcessOrRefreshChatMessageElement(el);
+  });
   rootNode.querySelectorAll(CHAT_LOG_SELECTOR).forEach((el) => {
-    processChatMessageElement(el);
+    if (!el.closest(CHAT_LOG_TURN_SELECTOR)) {
+      cgptProcessOrRefreshChatMessageElement(el);
+    }
   });
 }
 
-function processChatMessageElement(el) {
-  if (!el || el.dataset.cgptHelperChatTracked === "1") return;
+function cgptProcessOrRefreshChatMessageElement(element) {
+  const host = cgptGetChatEntryHost(element);
+  if (!host) return;
+  if (host.dataset && host.dataset.cgptHelperChatTracked === "1") {
+    cgptRefreshTrackedChatMessage(host);
+    return;
+  }
+  processChatMessageElement(host);
+}
 
-  const role = (el.getAttribute("data-message-author-role") || "").toLowerCase();
+function processChatMessageElement(el) {
+  if (!el) return;
+  const host = cgptGetChatEntryHost(el);
+  if (!host || host.dataset.cgptHelperChatTracked === "1") return;
+  const roleElement = cgptGetChatRoleElement(host);
+  const messageElement = roleElement || host;
+
+  const role = (roleElement && roleElement.getAttribute("data-message-author-role") || "").toLowerCase();
   if (role !== "user" && role !== "assistant") return;
 
   const rawId =
-    el.getAttribute("data-message-id") ||
-    el.dataset.messageId ||
-    el.getAttribute("data-id") ||
+    host.getAttribute("data-testid") ||
+    host.getAttribute("data-message-id") ||
+    host.dataset.messageId ||
+    host.getAttribute("data-id") ||
+    (roleElement && roleElement.getAttribute("data-message-id")) ||
+    (roleElement && roleElement.dataset && roleElement.dataset.messageId) ||
+    (roleElement && roleElement.getAttribute("data-id")) ||
     null;
   const entryId = rawId || `cgpt-helper-chat-${role}-${Date.now()}-${chatLogOrderCounter}`;
   if (chatLogTrackedIds.has(entryId)) {
-    el.dataset.cgptHelperChatTracked = "1";
+    host.dataset.cgptHelperChatTracked = "1";
+    if (roleElement && roleElement !== host) {
+      roleElement.dataset.cgptHelperChatTracked = "1";
+    }
+    return;
+  }
+
+  const text = extractChatMessageText(messageElement);
+  const fallbackText = text.trim() || cgptBuildChatMessageMediaPlaceholder(messageElement);
+  if (!fallbackText.trim()) {
+    removeChatMessageBadge(messageElement);
     return;
   }
 
   chatLogTrackedIds.add(entryId);
-  el.dataset.cgptHelperChatTracked = "1";
-  const text = extractChatMessageText(el);
-
+  host.dataset.cgptHelperChatTracked = "1";
+  if (roleElement && roleElement !== host) {
+    roleElement.dataset.cgptHelperChatTracked = "1";
+  }
   const entry = {
     id: entryId,
     role,
-    text,
-    timestamp: extractChatMessageTimestamp(el),
+    text: fallbackText,
+    timestamp: extractChatMessageTimestamp(host),
+    displayLabel: cgptResolveChatMessageDisplayLabel(role, messageElement),
     messageId: rawId || "",
-    element: el,
-    order: chatLogOrderCounter++,
+    element: messageElement,
+    hostElement: host,
+    roleElement: messageElement,
+    order: cgptResolveChatEntryOrder(host, chatLogOrderCounter),
     lastMutationAt: Date.now(),
   };
+  chatLogOrderCounter += 1;
 
   chatLogEntries.push(entry);
+  renderChatMessageBadge(entry);
   renderChatMessageTimestamp(entry);
   cgptScheduleChatMessageFolding(entry);
+  cgptNotifyChatLogUpdated();
+}
+
+function cgptGetChatEntryHost(element) {
+  if (!element || typeof element.matches !== "function") return null;
+  if (element.matches(CHAT_LOG_TURN_SELECTOR)) return element;
+  if (typeof element.closest === "function") {
+    const turn = element.closest(CHAT_LOG_TURN_SELECTOR);
+    if (turn) return turn;
+  }
+  if (element.matches(CHAT_LOG_SELECTOR)) return element;
+  return typeof element.closest === "function" ? element.closest(CHAT_LOG_SELECTOR) : null;
+}
+
+function cgptGetChatRoleElement(host) {
+  if (!host) return null;
+  if (host.matches && host.matches(CHAT_LOG_SELECTOR)) return host;
+  return typeof host.querySelector === "function" ? host.querySelector(CHAT_LOG_SELECTOR) : null;
+}
+
+function cgptIsVisibleChatMessageRegion(element) {
+  if (!element || typeof element.getClientRects !== "function") return false;
+  return Array.from(element.getClientRects()).some(
+    (rect) => rect && rect.width >= 24 && rect.height >= 12
+  );
+}
+
+function cgptResolveChatMessageDisplayLabel(role, element) {
+  if (typeof cgptGetChatEntryDisplayLabel === "function") {
+    return cgptGetChatEntryDisplayLabel({ role, element });
+  }
+  return role === "assistant" ? "AI" : "User";
+}
+
+function cgptResolveChatTurnNumber(host) {
+  if (!host || typeof host.getAttribute !== "function") return null;
+  const testId = String(host.getAttribute("data-testid") || "");
+  const match = testId.match(/^conversation-turn-(\d+)$/);
+  if (!match) return null;
+  const turnNumber = Number.parseInt(match[1], 10);
+  return Number.isFinite(turnNumber) ? turnNumber : null;
+}
+
+function cgptResolveChatEntryOrder(host, fallbackOrder) {
+  const turnNumber = cgptResolveChatTurnNumber(host);
+  if (Number.isFinite(turnNumber)) {
+    return turnNumber;
+  }
+  return Number.isFinite(fallbackOrder) ? fallbackOrder : 0;
 }
 
 function extractChatMessageTimestamp(el) {
@@ -293,33 +385,116 @@ function extractChatMessageTimestamp(el) {
       (timeEl.textContent ? timeEl.textContent.trim() : "");
     if (dt) return dt;
   }
-  return new Date().toISOString();
+  return "";
 }
 
 function cgptGetTrackedChatEntry(element) {
   if (!element) return null;
+  const host = cgptGetChatEntryHost(element) || element;
   const entryId =
-    element.getAttribute("data-message-id") ||
-    element.dataset.messageId ||
-    element.getAttribute("data-id") ||
+    host.getAttribute("data-testid") ||
+    host.getAttribute("data-message-id") ||
+    host.dataset.messageId ||
+    host.getAttribute("data-id") ||
     null;
   if (entryId) {
     const exactMatch = chatLogEntries.find((entry) => entry && entry.id === entryId);
     if (exactMatch) return exactMatch;
   }
-  return chatLogEntries.find((entry) => entry && entry.element === element) || null;
+  return (
+    chatLogEntries.find(
+      (entry) =>
+        entry &&
+        (entry.hostElement === host ||
+          entry.element === host ||
+          entry.roleElement === element ||
+          entry.roleElement === cgptGetChatRoleElement(host))
+    ) || null
+  );
 }
 
 function cgptRefreshTrackedChatMessage(element) {
   const entry = cgptGetTrackedChatEntry(element);
   if (!entry) return;
-  entry.text = extractChatMessageText(element);
-  entry.timestamp = extractChatMessageTimestamp(element);
+  const host = cgptGetChatEntryHost(element) || element;
+  const roleElement = cgptGetChatRoleElement(host) || entry.roleElement || host;
+  const text = extractChatMessageText(roleElement);
+  const fallbackText = text.trim() || cgptBuildChatMessageMediaPlaceholder(roleElement);
+  if (fallbackText.trim()) {
+    entry.text = fallbackText;
+  }
+  entry.timestamp = extractChatMessageTimestamp(host);
+  entry.displayLabel = cgptResolveChatMessageDisplayLabel(entry.role, roleElement);
+  entry.element = roleElement;
+  entry.hostElement = host;
+  entry.roleElement = roleElement;
+  entry.order = cgptResolveChatEntryOrder(host, entry.order);
   entry.lastMutationAt = Date.now();
+  renderChatMessageBadge(entry);
   renderChatMessageTimestamp(entry);
-  if (element.dataset.cgptHelperFoldApplied !== "1") {
+  if (entry.element.dataset.cgptHelperFoldApplied !== "1") {
     cgptScheduleChatMessageFolding(entry);
   }
+  cgptNotifyChatLogUpdated();
+}
+
+function cgptNotifyChatLogUpdated() {
+  if (typeof window === "undefined" || typeof window.dispatchEvent !== "function") {
+    return;
+  }
+  window.dispatchEvent(new CustomEvent(CHAT_LOG_UPDATED_EVENT));
+}
+
+function renderChatMessageBadge(entry) {
+  if (!entry || !entry.element) return;
+  const badgeHost = entry.roleElement || entry.element;
+  if (entry.role === "user") {
+    removeChatMessageBadge(badgeHost);
+    return;
+  }
+
+  const labelText = entry.displayLabel || cgptResolveChatMessageDisplayLabel(entry.role, badgeHost);
+  if (!labelText) return;
+
+  let wrapper = badgeHost.querySelector(`:scope > ${CHAT_LOG_MESSAGE_BADGE_SELECTOR}`);
+  if (!wrapper) {
+    wrapper = document.createElement("div");
+    wrapper.dataset.cgptHelperChatBadge = "1";
+    wrapper.style.display = "flex";
+    wrapper.style.alignItems = "center";
+    wrapper.style.justifyContent = entry.role === "user" ? "flex-end" : "flex-start";
+    wrapper.style.margin = "0 0 4px 0";
+    wrapper.style.pointerEvents = "none";
+    wrapper.style.width = "100%";
+    badgeHost.insertBefore(wrapper, badgeHost.firstChild);
+  }
+
+  let badge = wrapper.querySelector("span");
+  if (!badge) {
+    badge = document.createElement("span");
+    wrapper.appendChild(badge);
+  }
+  badge.textContent = labelText;
+  if (typeof cgptApplySharedChipStyle === "function") {
+    cgptApplySharedChipStyle(badge, {
+      variant: entry.role === "user" ? "userChip" : "assistantChip",
+      size: "sm",
+    });
+  } else {
+    badge.style.display = "inline-flex";
+    badge.style.alignItems = "center";
+    badge.style.borderRadius = "999px";
+    badge.style.padding = "2px 8px";
+    badge.style.fontSize = "11px";
+    badge.style.fontWeight = "600";
+  }
+}
+
+function removeChatMessageBadge(element) {
+  if (!element || typeof element.querySelectorAll !== "function") return;
+  element.querySelectorAll(`:scope > ${CHAT_LOG_MESSAGE_BADGE_SELECTOR}`).forEach((badge) => {
+    badge.remove();
+  });
 }
 
 function cgptHasStableCodeBlocks(element) {
@@ -411,6 +586,7 @@ function renderChatMessageFolding(entry) {
 
   const messageElement = entry.element;
   ensureChatLogFoldStyle();
+  removeChatMessageBadge(messageElement);
 
   const timestampNode = messageElement.querySelector(".cgpt-helper-chatlog-timestamp-wrapper");
   const movableNodes = Array.from(messageElement.childNodes).filter((node) => node !== timestampNode);
@@ -455,11 +631,57 @@ function extractChatMessageText(el) {
         el.querySelector(".cgpt-helper-message-body"))) ||
     null;
   if (body) {
-    if (body.innerText) return body.innerText.trim();
-    if (body.textContent) return body.textContent.trim();
+    return cgptExtractChatMessageTextFromNode(body);
   }
-  if (el.innerText) return el.innerText.trim();
-  if (el.textContent) return el.textContent.trim();
+  return cgptExtractChatMessageTextFromNode(el);
+}
+
+function cgptBuildChatMessageMediaPlaceholder(node) {
+  if (!node || typeof node.querySelector !== "function") return "";
+  const image =
+    node.querySelector("img[alt]") ||
+    node.querySelector("button[aria-label^='Open image:'] img") ||
+    null;
+  const imageLabel = image && typeof image.getAttribute === "function"
+    ? String(image.getAttribute("alt") || "").trim()
+    : "";
+  if (imageLabel) {
+    return `[Image: ${imageLabel}]`;
+  }
+
+  const imageButton = node.querySelector("button[aria-label^='Open image:']");
+  if (imageButton && typeof imageButton.getAttribute === "function") {
+    const ariaLabel = String(imageButton.getAttribute("aria-label") || "").trim();
+    const match = ariaLabel.match(/^Open image:\s*(.+)$/i);
+    if (match && match[1]) {
+      return `[Image: ${match[1].trim()}]`;
+    }
+    return "[Image]";
+  }
+
+  return "";
+}
+
+function cgptExtractChatMessageTextFromNode(node) {
+  if (!node) return "";
+  if (typeof node.cloneNode === "function") {
+    const clone = node.cloneNode(true);
+    if (clone && typeof clone.querySelectorAll === "function") {
+      clone
+        .querySelectorAll(
+          [
+            CHAT_LOG_MESSAGE_BADGE_SELECTOR,
+            ".cgpt-helper-chatlog-timestamp-wrapper",
+            ".cgpt-helper-fold-actions",
+          ].join(",")
+        )
+        .forEach((helperNode) => helperNode.remove());
+    }
+    if (clone && clone.innerText) return clone.innerText.trim();
+    if (clone && clone.textContent) return clone.textContent.trim();
+  }
+  if (node.innerText) return node.innerText.trim();
+  if (node.textContent) return node.textContent.trim();
   return "";
 }
 
@@ -486,5 +708,14 @@ if (typeof module !== "undefined" && module.exports) {
     cgptIsHelperManagedNode,
     cgptCanContainChatMessages,
     extractChatMessageTimestamp,
+    cgptResolveChatMessageDisplayLabel,
+    cgptResolveChatTurnNumber,
+    cgptResolveChatEntryOrder,
+    cgptGetChatEntryHost,
+    cgptGetChatRoleElement,
+    cgptBuildChatMessageMediaPlaceholder,
+    cgptExtractChatMessageTextFromNode,
+    cgptIsVisibleChatMessageRegion,
+    CHAT_LOG_UPDATED_EVENT,
   };
 }

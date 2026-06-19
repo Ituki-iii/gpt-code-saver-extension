@@ -53,7 +53,6 @@ function cgptCollectAssistantDisplayLabelCandidates(entry, options = {}) {
   if (entry && typeof entry.modelLabel === "string") {
     candidates.push(entry.modelLabel);
   }
-
   const element = entry && entry.element ? entry.element : null;
   if (element) {
     candidates.push(element.getAttribute("data-message-model-slug"));
@@ -64,6 +63,10 @@ function cgptCollectAssistantDisplayLabelCandidates(entry, options = {}) {
     candidates.push(element.dataset ? element.dataset.messageModelName : "");
     candidates.push(element.dataset ? element.dataset.modelSlug : "");
     candidates.push(element.dataset ? element.dataset.modelName : "");
+  }
+
+  if (entry && typeof entry.displayLabel === "string") {
+    candidates.push(entry.displayLabel);
   }
 
   if (includeDomCandidates && typeof document !== "undefined") {

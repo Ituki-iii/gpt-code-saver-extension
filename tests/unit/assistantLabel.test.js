@@ -33,6 +33,26 @@ test("cgptGetChatEntryDisplayLabel resolves user and assistant labels from entry
   assert.equal(
     cgptGetChatEntryDisplayLabel({
       role: "assistant",
+      displayLabel: "GPT 5.5 Thinking",
+    }),
+    "GPT 5.5 Thinking"
+  );
+  assert.equal(
+    cgptGetChatEntryDisplayLabel({
+      role: "assistant",
+      displayLabel: "AI",
+      element: {
+        getAttribute(name) {
+          return name === "data-message-model-slug" ? "gpt-5-5-thinking" : "";
+        },
+        dataset: {},
+      },
+    }),
+    "GPT 5.5 Thinking"
+  );
+  assert.equal(
+    cgptGetChatEntryDisplayLabel({
+      role: "assistant",
       element: {
         getAttribute(name) {
           return name === "data-message-model-slug" ? "gpt-5-2-thinking" : "";

@@ -1,4 +1,5 @@
 const CHAT_LOG_PREVIEW_LINE_LIMIT = 1;
+const CHAT_LOG_UPDATED_EVENT = "cgpt-helper-chatlog-updated";
 
 function openChatLogModal() {
   if (document.getElementById("cgpt-helper-chatlog-modal")) return;
@@ -11,21 +12,31 @@ function openChatLogModal() {
     ensureChatLogFoldStyle();
   }
 
-  const allEntries = getChatLogEntries();
   const { overlay, closeModal } = cgptCreateChatLogModalOverlay();
   const dialog = cgptCreateChatLogDialog();
+  const list = cgptCreateChatLogList([], closeModal);
 
   dialog.appendChild(cgptCreateChatLogHeader(closeModal));
-  dialog.appendChild(cgptCreateChatLogList(allEntries, closeModal));
+  dialog.appendChild(list);
 
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
+
+  const renderEntries = () => {
+    cgptPopulateChatLogList(list, getChatLogEntries(), closeModal);
+  };
+  renderEntries();
+  window.addEventListener(CHAT_LOG_UPDATED_EVENT, renderEntries);
 
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) {
       closeModal();
     }
   });
+
+  overlay.addEventListener("cgpt-helper-chatlog-close", () => {
+    window.removeEventListener(CHAT_LOG_UPDATED_EVENT, renderEntries);
+  }, { once: true });
 }
 
 function cgptCreateChatLogModalOverlay() {
@@ -47,6 +58,7 @@ function cgptCreateChatLogModalOverlay() {
   overlay.style.justifyContent = "center";
 
   const closeModal = () => {
+    overlay.dispatchEvent(new CustomEvent("cgpt-helper-chatlog-close"));
     if (overlay.parentNode) {
       overlay.parentNode.removeChild(overlay);
     }
@@ -61,13 +73,15 @@ function cgptCreateChatLogDialog() {
   dialog.style.flexDirection = "column";
   if (typeof cgptApplySurfaceLayout === "function") {
     cgptApplySurfaceLayout(dialog, "dialog");
+    dialog.style.padding = "14px";
+    dialog.style.gap = "8px";
   } else {
     dialog.style.borderRadius = "16px";
-    dialog.style.padding = "18px";
+    dialog.style.padding = "14px";
     dialog.style.width = "80%";
     dialog.style.maxWidth = "900px";
     dialog.style.maxHeight = "80%";
-    dialog.style.gap = "12px";
+    dialog.style.gap = "8px";
   }
   if (typeof cgptApplySurfaceStyle === "function") {
     cgptApplySurfaceStyle(dialog, "dialog");
@@ -108,7 +122,7 @@ function cgptCreateChatLogHeader(closeModal) {
   const wrapper = document.createElement("div");
   wrapper.style.display = "flex";
   wrapper.style.flexDirection = "column";
-  wrapper.style.gap = "6px";
+  wrapper.style.gap = "4px";
   wrapper.appendChild(headerRow);
 
   const helpText = document.createElement("div");
@@ -135,7 +149,15 @@ function cgptCreateChatLogList(entries, closeModal) {
   list.style.overflow = "auto";
   list.style.display = "flex";
   list.style.flexDirection = "column";
-  list.style.gap = "12px";
+  list.style.gap = "6px";
+
+  cgptPopulateChatLogList(list, entries, closeModal);
+  return list;
+}
+
+function cgptPopulateChatLogList(list, entries, closeModal) {
+  if (!list) return;
+  list.replaceChildren();
 
   const orderedEntries = Array.isArray(entries) ? [...entries].sort((a, b) => a.order - b.order) : [];
   if (orderedEntries.length === 0) {
@@ -147,15 +169,13 @@ function cgptCreateChatLogList(entries, closeModal) {
       empty.style.color = "#9ca3af";
     }
     list.appendChild(empty);
-    return list;
+    return;
   }
 
   orderedEntries.forEach((entry) => {
     const card = cgptCreateChatLogEntryCard(entry, closeModal);
     list.appendChild(card);
   });
-
-  return list;
 }
 
 function cgptCreateChatLogEntryCard(entry, closeModal) {
@@ -172,7 +192,7 @@ function cgptCreateChatLogEntryCard(entry, closeModal) {
 
 function cgptCreateChatLogEntryFold(entry, closeModal) {
   const container = document.createElement("div");
-  container.style.padding = "2px 0";
+  container.style.padding = "0";
 
   const jumpBtn =
     typeof cgptCreateFoldActionButton === "function"
@@ -203,13 +223,14 @@ function cgptCreateChatLogEntryFold(entry, closeModal) {
   fold.className = "cgpt-helper-fold";
   fold.style.marginTop = "0";
   fold.style.border = "1px solid rgba(203, 213, 225, 0.92)";
-  fold.style.borderRadius = "14px";
+  fold.style.borderRadius = "10px";
   fold.style.background = "rgba(248, 250, 252, 0.92)";
   fold.style.color = "#0f172a";
-  fold.style.padding = "12px 12px 12px 14px";
+  fold.style.padding = "8px 10px";
   foldShell.titleWrapper.appendChild(cgptCreateChatLogEntryMeta(entry));
   const body = foldShell.body;
-  body.style.marginTop = "10px";
+  body.style.marginTop = "6px";
+  body.style.gap = "6px";
   body.appendChild(cgptCreateChatLogMessageBody(entry));
 
   container.appendChild(fold);
@@ -270,7 +291,7 @@ function cgptCreateChatLogAssistantSection(entry, closeModal) {
   const section = document.createElement("div");
   section.style.display = "flex";
   section.style.flexDirection = "column";
-  section.style.gap = "6px";
+  section.style.gap = "4px";
 
   if (blockSection) {
     section.appendChild(blockSection);
@@ -351,7 +372,7 @@ function cgptCreateChatLogBlocksSection(blocks, closeModal) {
   const section = cgptCreateChatLogSectionContainer();
   const blockHeaderActions = document.createElement("div");
   blockHeaderActions.style.display = "flex";
-  blockHeaderActions.style.gap = "6px";
+  blockHeaderActions.style.gap = "4px";
   blockHeaderActions.appendChild(cgptCreateBatchSaveAllButton(savableBlocks));
   blockHeaderActions.appendChild(cgptCreateBatchSaveAsAllButton(savableBlocks));
   section.appendChild(cgptCreateChatLogSectionHeader(`Code blocks (${blocks.length})`, "accent", blockHeaderActions));
@@ -366,7 +387,7 @@ function cgptCreateChatLogBlocksSection(blocks, closeModal) {
 function cgptCreateChatLogCodeBlockCard(block, closeModal) {
   const blockActionWrapper = document.createElement("div");
   blockActionWrapper.style.display = "flex";
-  blockActionWrapper.style.gap = "6px";
+  blockActionWrapper.style.gap = "4px";
   blockActionWrapper.style.flexWrap = "wrap";
 
   blockActionWrapper.appendChild(cgptCreateBlockSaveButton(block));
@@ -420,7 +441,7 @@ function cgptCreateChatLogSectionContainer() {
   const section = document.createElement("div");
   section.style.display = "flex";
   section.style.flexDirection = "column";
-  section.style.gap = "6px";
+  section.style.gap = "4px";
   return section;
 }
 
@@ -429,7 +450,7 @@ function cgptCreateChatLogSectionHeader(title, tone = "accent", actionNode = nul
   header.style.display = "flex";
   header.style.alignItems = "center";
   header.style.justifyContent = "space-between";
-  header.style.gap = "8px";
+  header.style.gap = "6px";
 
   const label = document.createElement("div");
   label.textContent = title;
@@ -464,10 +485,12 @@ function cgptCreateChatLogDetailCard({
   wrapper.style.flexDirection = "column";
   if (typeof cgptApplySurfaceLayout === "function") {
     cgptApplySurfaceLayout(wrapper, "sectionCard");
+    wrapper.style.padding = "6px";
+    wrapper.style.gap = "4px";
   } else {
-    wrapper.style.borderRadius = "12px";
-    wrapper.style.padding = "8px";
-    wrapper.style.gap = "6px";
+    wrapper.style.borderRadius = "8px";
+    wrapper.style.padding = "6px";
+    wrapper.style.gap = "4px";
   }
   if (typeof cgptApplySurfaceStyle === "function") {
     cgptApplySurfaceStyle(wrapper, "subtle");
@@ -480,7 +503,7 @@ function cgptCreateChatLogDetailCard({
   row.style.display = "flex";
   row.style.justifyContent = "space-between";
   row.style.alignItems = "center";
-  row.style.gap = "8px";
+  row.style.gap = "6px";
 
   const labelWrapper = document.createElement("div");
   labelWrapper.style.flex = "1";
@@ -492,7 +515,7 @@ function cgptCreateChatLogDetailCard({
   titleRow.style.display = "flex";
   titleRow.style.flexWrap = "wrap";
   titleRow.style.alignItems = "baseline";
-  titleRow.style.columnGap = "6px";
+  titleRow.style.columnGap = "4px";
 
   const titleEl = document.createElement("div");
   titleEl.textContent = title || "";

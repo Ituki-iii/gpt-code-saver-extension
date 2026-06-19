@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mock ChatGPT Turn Hosts</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f7f7f8;
+        color: #1f2937;
+      }
+
+      main {
+        max-width: 920px;
+        margin: 0 auto;
+        padding: 32px 24px 120px;
+      }
+
+      section[data-testid^="conversation-turn-"] {
+        margin-bottom: 24px;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      [data-message-author-role] {
+        padding: 20px;
+        border-radius: 16px;
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+      }
+
+      [data-message-author-role="user"] {
+        max-width: 70%;
+        margin-left: auto;
+      }
+
+      .assistant-turn-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        color: #6b7280;
+        font-size: 13px;
+      }
+
+      .image-button {
+        display: inline-flex;
+        padding: 0;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .image-button img {
+        width: 160px;
+        height: 120px;
+        object-fit: cover;
+        border-radius: 20px;
+        display: block;
+      }
+
+      h2,
+      p {
+        margin: 0 0 12px;
+      }
+
+      pre {
+        position: relative;
+        overflow: auto;
+        padding: 18px 20px;
+        border-radius: 12px;
+        background: #f3f4f6;
+        border: 1px solid #e5e7eb;
+      }
+
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        white-space: pre;
+        color: #111827;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 150px;
+        padding: 14px;
+        border: 1px solid #d1d5db;
+        border-radius: 14px;
+        background: #ffffff;
+        color: #111827;
+        resize: vertical;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section data-testid="conversation-turn-1" data-turn="user">
+        <h4 class="sr-only">You said:</h4>
+        <div data-message-author-role="user" data-message-id="fixture-user-image">
+          <div>
+            <button type="button" class="image-button" aria-label="Open image: image(25).png">
+              <img
+                alt="image(25).png"
+                src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+              />
+            </button>
+          </div>
+          <time datetime="2026-02-28T04:00:00.000Z">2026-02-28 13:00</time>
+        </div>
+      </section>
+
+      <section data-testid="conversation-turn-2" data-turn="assistant">
+        <h4 class="sr-only">ChatGPT said:</h4>
+        <div class="assistant-turn-meta">
+          <button type="button">思考時間: 10s</button>
+        </div>
+        <div
+          data-message-author-role="assistant"
+          data-message-id="fixture-assistant-1"
+          data-message-model-slug="gpt-5-5-thinking"
+        >
+          <h2>Implementation</h2>
+          <p>Use the following code block.</p>
+          <a href="https://example.com/reference">Reference</a>
+          <pre><code>// file: src/app.js
+console.log("hello from turn host fixture");
+</code></pre>
+          <time datetime="2026-02-28T04:00:05.000Z">2026-02-28 13:00</time>
+        </div>
+      </section>
+
+      <label for="chat-input">Prompt</label>
+      <textarea id="chat-input" data-testid="textbox"></textarea>
+    </main>
+  </body>
+</html>
