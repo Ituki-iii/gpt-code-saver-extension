@@ -107,15 +107,15 @@ function cgptCreatePanelToggleButton() {
 
   const button =
     typeof cgptCreateSharedChipButton === "function"
-      ? cgptCreateSharedChipButton("Tools", "md")
+      ? cgptCreateSharedChipButton("Quick Settings", "md")
       : document.createElement("button");
   button.id = "cgpt-helper-panel-toggle";
-  button.textContent = "Tools";
+  button.textContent = "Quick Settings";
   button.style.position = "fixed";
   button.style.right = "16px";
   button.style.bottom = "16px";
   button.style.zIndex = "9999";
-  button.style.minWidth = "56px";
+  button.style.minWidth = "120px";
   button.style.padding = "0 14px";
   button.style.cursor = "pointer";
   if (typeof cgptCreateSharedChipButton !== "function") {
@@ -144,7 +144,7 @@ function cgptApplyPanelVisibility(panel, { hidden, toggleButton }) {
     if (toggleButton) {
       toggleButton.style.display = "flex";
       toggleButton.setAttribute("aria-pressed", isHidden ? "false" : "true");
-      toggleButton.title = isHidden ? "Show tools" : "Hide tools";
+      toggleButton.title = isHidden ? "Show quick settings" : "Hide quick settings";
     }
     if (typeof cgptSyncPanelLayoutState === "function") {
       cgptSyncPanelLayoutState({ panel, toggleButton, hidden: isHidden });

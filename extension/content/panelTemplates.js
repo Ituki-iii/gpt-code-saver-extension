@@ -9,7 +9,7 @@ function cgptCreateTemplateToggleButton() {
   button.id = "cgpt-helper-template-toggle";
   button.textContent = "Templates";
   button.style.position = "fixed";
-  button.style.right = "96px";
+  button.style.right = "256px";
   button.style.bottom = "16px";
   button.style.zIndex = "9999";
   button.style.minWidth = "56px";

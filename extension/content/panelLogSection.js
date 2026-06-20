@@ -3,17 +3,6 @@ function createLogSection() {
   const logButtons = createButtonRow();
   const logButtonVariant = "secondary";
 
-  const chatLogBtn = createPanelButton("Chat Log", logButtonVariant);
-  chatLogBtn.style.flex = "1";
-  chatLogBtn.addEventListener("click", () => {
-    if (typeof openChatLogModal === "function") {
-      openChatLogModal();
-    } else {
-      alert("Unable to open the chat log viewer.");
-    }
-  });
-  logButtons.appendChild(chatLogBtn);
-
   const historyBtn = createPanelButton("Download Log", logButtonVariant);
   historyBtn.style.flex = "1";
   historyBtn.addEventListener("click", () => {

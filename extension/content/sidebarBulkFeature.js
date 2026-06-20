@@ -12,7 +12,11 @@ function cgptInitSidebarBulkFeature(root = document) {
       }
       cgptCloseSidebarBulkPanel();
     });
-    document.body.appendChild(button);
+    if (typeof cgptMountFloatingLauncher === "function") {
+      cgptMountFloatingLauncher(button, { order: 10 });
+    } else {
+      document.body.appendChild(button);
+    }
   }
   if (typeof cgptSubscribeSidebarBulkState === "function") {
     if (!button.dataset.cgptSidebarBulkSubscribed) {

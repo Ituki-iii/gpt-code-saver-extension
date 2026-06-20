@@ -1,8 +1,131 @@
 const CHAT_LOG_PREVIEW_LINE_LIMIT = 1;
-const CHAT_LOG_UPDATED_EVENT = "cgpt-helper-chatlog-updated";
+const CGPT_CHAT_LOG_UPDATED_EVENT = "cgpt-helper-chatlog-updated";
+
+function cgptIsChatLogModalOpen() {
+  return Boolean(document.getElementById("cgpt-helper-chatlog-modal"));
+}
+
+function cgptToggleChatLogModal() {
+  if (cgptIsChatLogModalOpen()) {
+    cgptCloseChatLogModal();
+    return;
+  }
+  openChatLogModal();
+}
+
+function cgptEnsureChatLogToggleButtonBinding(button) {
+  if (!button || button.dataset.cgptChatLogToggleBound === "1") {
+    return button;
+  }
+  button.dataset.cgptChatLogToggleBound = "1";
+  button.addEventListener("click", () => {
+    cgptToggleChatLogModal();
+  });
+  return button;
+}
+
+function cgptSyncChatLogToggleState(isOpen, buttonOverride) {
+  const button = buttonOverride || document.getElementById("cgpt-helper-chatlog-toggle");
+  if (!button) return;
+  button.setAttribute("aria-pressed", isOpen ? "true" : "false");
+  button.title = isOpen ? "Hide chat log" : "Show chat log";
+}
+
+function cgptCreateChatLogToggleButton() {
+  const existing = document.getElementById("cgpt-helper-chatlog-toggle");
+  if (existing) {
+    return cgptEnsureChatLogToggleButtonBinding(existing);
+  }
+
+  const button =
+    typeof cgptCreateSharedChipButton === "function"
+      ? cgptCreateSharedChipButton("Chat Log", "md")
+      : document.createElement("button");
+  button.id = "cgpt-helper-chatlog-toggle";
+  button.textContent = "Chat Log";
+  button.style.position = "fixed";
+  button.style.right = "156px";
+  button.style.bottom = "16px";
+  button.style.zIndex = "9999";
+  button.style.minWidth = "72px";
+  button.style.padding = "0 14px";
+  button.style.cursor = "pointer";
+  if (typeof cgptCreateSharedChipButton !== "function") {
+    button.style.height = "48px";
+    button.style.borderRadius = "999px";
+    button.style.fontSize = "11px";
+    button.style.fontWeight = "600";
+    button.style.display = "flex";
+    button.style.alignItems = "center";
+    button.style.justifyContent = "center";
+    if (typeof cgptApplySurfaceStyle === "function") {
+      cgptApplySurfaceStyle(button, "panel");
+    } else {
+      button.style.border = "1px solid rgba(255,255,255,0.15)";
+      button.style.background = "rgba(32, 33, 35, 0.9)";
+      button.style.color = "#fff";
+      button.style.boxShadow = "0 4px 12px rgba(0,0,0,0.35)";
+    }
+  }
+  cgptSyncChatLogToggleState(false, button);
+  return cgptEnsureChatLogToggleButtonBinding(button);
+}
+
+function cgptEnsureChatLogToggleMounted() {
+  if (!document.body) return null;
+  if (
+    !document.getElementById("cgpt-helper-panel-toggle") &&
+    !document.getElementById("cgpt-code-helper-panel")
+  ) {
+    return null;
+  }
+  const button = cgptCreateChatLogToggleButton();
+  if (button && !button.isConnected) {
+    document.body.appendChild(button);
+  }
+  return button;
+}
+
+function cgptInstallChatLogToggleMountWatcher() {
+  if (typeof window === "undefined" || window.__cgptChatLogToggleMountWatcherInstalled === true) {
+    return;
+  }
+  window.__cgptChatLogToggleMountWatcherInstalled = true;
+  if (cgptEnsureChatLogToggleMounted()) {
+    return;
+  }
+  if (typeof MutationObserver !== "function" || !document.documentElement) {
+    return;
+  }
+  const observer = new MutationObserver(() => {
+    if (cgptEnsureChatLogToggleMounted()) {
+      observer.disconnect();
+    }
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+}
+
+cgptInstallChatLogToggleMountWatcher();
+
+function cgptCloseChatLogModal() {
+  const overlay = document.getElementById("cgpt-helper-chatlog-modal");
+  if (!overlay) {
+    if (typeof cgptSyncChatLogToggleState === "function") {
+      cgptSyncChatLogToggleState(false);
+    }
+    return;
+  }
+  overlay.dispatchEvent(new CustomEvent("cgpt-helper-chatlog-close"));
+  if (overlay.parentNode) {
+    overlay.parentNode.removeChild(overlay);
+  }
+  if (typeof cgptSyncChatLogToggleState === "function") {
+    cgptSyncChatLogToggleState(false);
+  }
+}
 
 function openChatLogModal() {
-  if (document.getElementById("cgpt-helper-chatlog-modal")) return;
+  if (cgptIsChatLogModalOpen()) return;
   if (typeof getChatLogEntries !== "function") {
     alert("Failed to initialize the chat log.");
     return;
@@ -21,12 +144,15 @@ function openChatLogModal() {
 
   overlay.appendChild(dialog);
   document.body.appendChild(overlay);
+  if (typeof cgptSyncChatLogToggleState === "function") {
+    cgptSyncChatLogToggleState(true);
+  }
 
   const renderEntries = () => {
     cgptPopulateChatLogList(list, getChatLogEntries(), closeModal);
   };
   renderEntries();
-  window.addEventListener(CHAT_LOG_UPDATED_EVENT, renderEntries);
+  window.addEventListener(CGPT_CHAT_LOG_UPDATED_EVENT, renderEntries);
 
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) {
@@ -35,7 +161,7 @@ function openChatLogModal() {
   });
 
   overlay.addEventListener("cgpt-helper-chatlog-close", () => {
-    window.removeEventListener(CHAT_LOG_UPDATED_EVENT, renderEntries);
+    window.removeEventListener(CGPT_CHAT_LOG_UPDATED_EVENT, renderEntries);
   }, { once: true });
 }
 
@@ -58,10 +184,7 @@ function cgptCreateChatLogModalOverlay() {
   overlay.style.justifyContent = "center";
 
   const closeModal = () => {
-    overlay.dispatchEvent(new CustomEvent("cgpt-helper-chatlog-close"));
-    if (overlay.parentNode) {
-      overlay.parentNode.removeChild(overlay);
-    }
+    cgptCloseChatLogModal();
   };
 
   return { overlay, closeModal };
@@ -586,4 +709,16 @@ function cgptBuildUnnamedCodeBlockDetail(block) {
     return `Detected language: ${block.language}`;
   }
   return "File path not detected";
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    cgptCreateChatLogToggleButton,
+    cgptEnsureChatLogToggleButtonBinding,
+    cgptIsChatLogModalOpen,
+    cgptCloseChatLogModal,
+    cgptToggleChatLogModal,
+    cgptSyncChatLogToggleState,
+    openChatLogModal,
+  };
 }

@@ -6,15 +6,15 @@ function createPanelContainer() {
   panel.style.bottom = "72px";
   panel.style.zIndex = "9999";
   panel.style.boxSizing = "border-box";
-  panel.style.borderRadius = "8px";
-  panel.style.padding = "8px";
+  panel.style.borderRadius = "12px";
+  panel.style.padding = "10px";
   panel.style.fontSize = "12px";
   panel.style.display = "flex";
   panel.style.flexDirection = "column";
-  panel.style.gap = "4px";
+  panel.style.gap = "6px";
   panel.style.backdropFilter = "blur(8px)";
-  panel.style.width = "min(192px, calc(100vw - 32px))";
-  panel.style.maxWidth = "192px";
+  panel.style.width = "min(224px, calc(100vw - 32px))";
+  panel.style.maxWidth = "224px";
   panel.style.maxHeight = "calc(100vh - 112px)";
   panel.style.overflowX = "hidden";
   panel.style.overflowY = "auto";
@@ -69,8 +69,8 @@ function createPanelSection(titleText, options = {}) {
   const section = document.createElement("div");
   section.style.display = "flex";
   section.style.flexDirection = "column";
-  section.style.gap = "4px";
-  section.style.paddingTop = "6px";
+  section.style.gap = "6px";
+  section.style.paddingTop = "8px";
   section.style.borderTop = "1px solid rgba(203, 213, 225, 0.7)";
 
   const label = createSectionLabel(titleText);
@@ -138,7 +138,7 @@ function applyPanelButtonVariant(button, variant) {
 function createButtonRow() {
   const row = document.createElement("div");
   row.style.display = "flex";
-  row.style.gap = "4px";
+  row.style.gap = "6px";
   row.style.width = "100%";
   row.style.minWidth = "0";
   row.style.flexWrap = "wrap";

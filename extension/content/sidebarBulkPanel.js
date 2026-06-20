@@ -8,7 +8,7 @@ function cgptCreateSidebarBulkToggleButton() {
   button.id = "cgpt-helper-sidebar-bulk-toggle";
   button.textContent = "Bulk Chats";
   button.style.position = "fixed";
-  button.style.right = "200px";
+  button.style.right = "344px";
   button.style.bottom = "16px";
   button.style.zIndex = "9999";
   button.style.minWidth = "88px";

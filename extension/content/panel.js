@@ -1,5 +1,26 @@
+function cgptRemoveStaleHelperUi() {
+  [
+    "cgpt-code-helper-panel",
+    "cgpt-helper-panel-toggle",
+    "cgpt-helper-template-toggle",
+    "cgpt-helper-template-panel",
+    "cgpt-helper-template-modal",
+    "cgpt-helper-chatlog-toggle",
+    "cgpt-helper-chatlog-modal",
+    "cgpt-helper-sidebar-bulk-toggle",
+    "cgpt-helper-sidebar-bulk-panel",
+    "cgpt-helper-log-modal",
+    "cgpt-helper-launcher-dock",
+  ].forEach((id) => {
+    const node = document.getElementById(id);
+    if (node && node.parentNode) {
+      node.parentNode.removeChild(node);
+    }
+  });
+}
+
 function createFloatingPanel() {
-  if (document.getElementById("cgpt-code-helper-panel")) return;
+  cgptRemoveStaleHelperUi();
 
   const panel = createPanelContainer();
   const toggleButton =
@@ -58,7 +79,11 @@ function createFloatingPanel() {
           : panel.style.display !== "none";
       requestVisibility(nextHidden);
     });
-    document.body.appendChild(toggleButton);
+    if (typeof cgptMountFloatingLauncher === "function") {
+      cgptMountFloatingLauncher(toggleButton, { order: 40 });
+    } else {
+      document.body.appendChild(toggleButton);
+    }
   }
 
   if (templateToggleButton) {
@@ -69,7 +94,11 @@ function createFloatingPanel() {
         openTemplatePanel();
       }
     });
-    document.body.appendChild(templateToggleButton);
+    if (typeof cgptMountFloatingLauncher === "function") {
+      cgptMountFloatingLauncher(templateToggleButton, { order: 30 });
+    } else {
+      document.body.appendChild(templateToggleButton);
+    }
   }
 
   if (typeof cgptSyncPanelLayoutState === "function") {
@@ -79,4 +108,10 @@ function createFloatingPanel() {
       hidden: visibilityState.hidden,
     });
   }
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    cgptRemoveStaleHelperUi,
+  };
 }

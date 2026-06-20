@@ -121,6 +121,8 @@ test.describe("UI screen checks @ui-evidence", () => {
     await ensureDir(screenshotDir);
     const page = await createMockPage(sharedContext);
     try {
+      await expect(page.getByRole("button", { name: "Quick Settings" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Chat Log" })).toBeVisible();
       const panel = page.locator("#cgpt-code-helper-panel");
       await expect(panel).toContainText("Extension");
       await expect(panel).toContainText("Project Folder");
@@ -128,6 +130,7 @@ test.describe("UI screen checks @ui-evidence", () => {
       await expect(panel).toContainText("Display");
       await expect(panel).toContainText("View Controls");
       await expect(panel).toContainText("Logs");
+      await expect(panel).not.toContainText("Chat Log");
       await panel.screenshot({ path: path.join(screenshotDir, "main-panel.png") });
     } finally {
       await page.close().catch(() => {});
