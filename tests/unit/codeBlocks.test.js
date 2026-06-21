@@ -10,7 +10,7 @@ function resetGlobals() {
   delete global.Node;
 }
 
-test("cgptCollectDecoratablePres ignores outer pre containers that contain nested pre blocks", () => {
+test("cgptCollectDecoratablePres ignores nested inner pre blocks when an outer pre owns the code", () => {
   global.Node = { ELEMENT_NODE: 1, DOCUMENT_NODE: 9, DOCUMENT_FRAGMENT_NODE: 11 };
   const { cgptCollectDecoratablePres } = loadModule();
 
@@ -21,19 +21,50 @@ test("cgptCollectDecoratablePres ignores outer pre containers that contain neste
     closest: () => null,
     querySelector: (selector) => (selector === "code, .cm-content" ? code : null),
     querySelectorAll: () => [],
+    parentElement: null,
   };
   const outerPre = {
     nodeType: 1,
     matches: (selector) => selector === "pre",
-    closest: () => null,
+    closest: (selector) => (selector === "pre" ? outerPre : null),
     querySelector: (selector) => (selector === "code, .cm-content" ? code : null),
     querySelectorAll: (selector) => (selector === "pre" ? [innerPre] : []),
+    parentElement: null,
   };
+  innerPre.parentElement = outerPre;
   const root = {
     nodeType: 9,
     querySelectorAll: (selector) => (selector === "pre" ? [outerPre, innerPre] : []),
   };
 
-  assert.deepStrictEqual(cgptCollectDecoratablePres(root), [innerPre]);
+  const result = cgptCollectDecoratablePres(root);
+  assert.equal(result.length, 1);
+  assert.strictEqual(result[0], outerPre);
+  resetGlobals();
+});
+
+test("cgptCollectDecoratablePres skips user message code blocks", () => {
+  global.Node = { ELEMENT_NODE: 1, DOCUMENT_NODE: 9, DOCUMENT_FRAGMENT_NODE: 11 };
+  const { cgptCollectDecoratablePres } = loadModule();
+
+  const code = {};
+  const userMessage = {
+    getAttribute: (name) => (name === "data-message-author-role" ? "user" : ""),
+  };
+  const userPre = {
+    nodeType: 1,
+    matches: (selector) => selector === "pre",
+    closest: (selector) => (selector === "[data-message-author-role]" ? userMessage : null),
+    querySelector: (selector) => (selector === "code, .cm-content" ? code : null),
+    querySelectorAll: () => [],
+    parentElement: null,
+  };
+  const root = {
+    nodeType: 9,
+    querySelectorAll: (selector) => (selector === "pre" ? [userPre] : []),
+  };
+
+  const result = cgptCollectDecoratablePres(root);
+  assert.equal(result.length, 0);
   resetGlobals();
 });

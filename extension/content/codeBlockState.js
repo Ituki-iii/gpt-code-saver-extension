@@ -6,7 +6,9 @@ function cgptGetCodeBlockState(pre) {
       buttonContainer: null,
       buttonOverlayOffset: null,
       viewButtons: null,
-      metadata: null,
+      pathInfo: null,
+      pathMetadataNode: null,
+      generatedFilePath: "",
     };
   }
   return pre.__cgptCodeBlockState;

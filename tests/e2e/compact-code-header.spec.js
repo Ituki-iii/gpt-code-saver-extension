@@ -160,6 +160,7 @@ function buildFixtureHtml() {
     <main>
       <div data-message-author-role="assistant" data-message-id="assistant-compact-1">
         <p>Compact preview should keep native code labels and append file paths.</p>
+        <p>PATH: src/demo.py</p>
         <pre>
           <div class="cgpt-mock-code-shell">
             <div class="cgpt-mock-code-header">
@@ -172,8 +173,7 @@ function buildFixtureHtml() {
             </div>
             <div class="cgpt-mock-code-body">
               <div class="cm-scroller">
-                <div class="cm-content"><span class="cgpt-mock-code-token-comment"># file: src/demo.py</span>
-<span class="cgpt-mock-code-token-keyword">def</span> hello():
+                <div class="cm-content"><span class="cgpt-mock-code-token-keyword">def</span> hello():
     print(<span class="cgpt-mock-code-token-string">"hello"</span>)
     return 1
 </div>
@@ -181,6 +181,7 @@ function buildFixtureHtml() {
             </div>
           </div>
         </pre>
+        <p>PATH: scripts/run.sh</p>
         <pre>
           <div class="cgpt-mock-code-shell">
             <div class="cgpt-mock-code-header">
@@ -192,13 +193,13 @@ function buildFixtureHtml() {
               </div>
             </div>
             <div class="cgpt-mock-code-body">
-              <code><span class="cgpt-mock-code-token-comment"># file: scripts/run.sh</span>
-<span class="cgpt-mock-code-token-function">echo</span> <span class="cgpt-mock-code-token-string">"hello"</span>
+              <code><span class="cgpt-mock-code-token-function">echo</span> <span class="cgpt-mock-code-token-string">"hello"</span>
 <span class="cgpt-mock-code-token-function">echo</span> <span class="cgpt-mock-code-token-string">"world"</span>
 </code>
             </div>
           </div>
         </pre>
+        <p>PATH: src/middleware/errorHandler.js</p>
         <pre>
           <div class="cgpt-mock-code-shell">
             <div class="cgpt-mock-code-header">
@@ -213,8 +214,7 @@ function buildFixtureHtml() {
               </div>
             </div>
             <div class="cgpt-mock-code-body">
-              <code><span class="cgpt-mock-code-token-comment">// file: src/middleware/errorHandler.js</span>
-<span class="cgpt-mock-code-token-keyword">export function</span> <span class="cgpt-mock-code-token-function">errorHandler</span>(err, req, res, next) {
+              <code><span class="cgpt-mock-code-token-keyword">export function</span> <span class="cgpt-mock-code-token-function">errorHandler</span>(err, req, res, next) {
   return err;
 }
 </code>
@@ -237,6 +237,7 @@ test("expanded mode keeps native labels and appends file paths by default", asyn
 
   const scripts = await Promise.all([
     readScript("extension/shared/uiStyles.js"),
+    readScript("extension/content/pathMetadata.js"),
     readScript("extension/content/codeBlockMetadata.js"),
     readScript("extension/content/codeBlockState.js"),
     readScript("extension/content/codeBlockViewMode.js"),
@@ -254,9 +255,16 @@ test("expanded mode keeps native labels and appends file paths by default", asyn
       headerText: "Python src/demo.py",
       pathText: "src/demo.py",
       langText: "",
+      sourcePathHidden: true,
+      pathFontSize: "inherit",
+      pathBackgroundColor: "rgba(59, 130, 246, 0.18)",
+      pathBorderRadius: "8px",
+      actionsPlacement: "native-header",
+      actionWrap: "nowrap",
       hasToggle: true,
       toggleExpanded: "true",
       toggleCount: 1,
+      standaloneHeaderCount: 0,
       compactFirstLine: "def hello():",
       hostDisplay: "",
     },
@@ -264,9 +272,16 @@ test("expanded mode keeps native labels and appends file paths by default", asyn
       headerText: "Code scripts/run.sh",
       pathText: "scripts/run.sh",
       langText: "",
+      sourcePathHidden: true,
+      pathFontSize: "inherit",
+      pathBackgroundColor: "rgba(59, 130, 246, 0.18)",
+      pathBorderRadius: "8px",
+      actionsPlacement: "native-header",
+      actionWrap: "nowrap",
       hasToggle: true,
       toggleExpanded: "true",
       toggleCount: 1,
+      standaloneHeaderCount: 0,
       compactFirstLine: 'echo "hello"',
       hostDisplay: "",
     },
@@ -274,9 +289,16 @@ test("expanded mode keeps native labels and appends file paths by default", asyn
       headerText: "JavaScript export function errorHandler(err, req, res, next) { src/middleware/errorHandler.js",
       pathText: "src/middleware/errorHandler.js",
       langText: "JavaScript",
+      sourcePathHidden: true,
+      pathFontSize: "inherit",
+      pathBackgroundColor: "rgba(59, 130, 246, 0.18)",
+      pathBorderRadius: "8px",
+      actionsPlacement: "native-header",
+      actionWrap: "nowrap",
       hasToggle: true,
       toggleExpanded: "true",
       toggleCount: 1,
+      standaloneHeaderCount: 0,
       compactFirstLine: "export function errorHandler(err, req, res, next) {",
       hostDisplay: "",
     },
@@ -295,6 +317,12 @@ test("expanded mode keeps native labels and appends file paths by default", asyn
       const explicitLangNode = pre.querySelector("[data-lang-label='1']");
       const toggles = Array.from(pre.querySelectorAll("[data-cgpt-code-toggle='1']"));
       const toggle = toggles[0] || null;
+      const saveButton = pre.querySelector("button[data-cgpt-button-role='save']");
+      const actionsNode = saveButton ? saveButton.closest("[data-cgpt-code-actions='1']") : null;
+      const wrapper = pre.parentElement && pre.parentElement.dataset.cgptCodeWrapper === "1"
+        ? pre.parentElement
+        : null;
+      const sourcePathNode = wrapper ? wrapper.previousElementSibling : pre.previousElementSibling;
       const host = typeof cgptGetCompactContentHost === "function"
         ? cgptGetCompactContentHost(pre)
         : pre;
@@ -304,15 +332,28 @@ test("expanded mode keeps native labels and appends file paths by default", asyn
       const rawLines = (code?.textContent || "")
         .replace(/\r\n/g, "\n")
         .replace(/\n+$/, "")
-        .split("\n")
-        .slice(1);
+        .split("\n");
       return {
         headerText: labelNode ? labelNode.textContent.replace(/\s+/g, " ").trim() : "",
         pathText: pathEl ? pathEl.textContent.trim() : "",
         langText: explicitLangNode ? explicitLangNode.textContent.replace(/\s+/g, " ").trim() : "",
+        sourcePathHidden: Boolean(
+          sourcePathNode &&
+          sourcePathNode.textContent.includes("PATH:") &&
+          sourcePathNode.style &&
+          sourcePathNode.style.display === "none"
+        ),
+        pathFontSize: pathEl && pathEl.style ? pathEl.style.fontSize : "",
+        pathBackgroundColor: pathEl && pathEl.style ? pathEl.style.backgroundColor : "",
+        pathBorderRadius: pathEl && pathEl.style ? pathEl.style.borderRadius : "",
+        actionsPlacement: actionsNode ? actionsNode.dataset.cgptCodeActionsPlacement || "" : "",
+        actionWrap: actionsNode && actionsNode.style ? actionsNode.style.flexWrap : "",
         hasToggle: Boolean(toggle),
         toggleExpanded: toggle ? toggle.getAttribute("aria-expanded") : "",
         toggleCount: toggles.length,
+        standaloneHeaderCount: wrapper
+          ? wrapper.querySelectorAll(":scope > [data-cgpt-code-header='1']").length
+          : 0,
         compactFirstLine: rawLines[0] || "",
         hostDisplay: host && host.style ? host.style.display : "",
       };
@@ -338,6 +379,7 @@ test("compact and expand can be repeated without breaking the header path", asyn
 
   const scripts = await Promise.all([
     readScript("extension/shared/uiStyles.js"),
+    readScript("extension/content/pathMetadata.js"),
     readScript("extension/content/codeBlockMetadata.js"),
     readScript("extension/content/codeBlockState.js"),
     readScript("extension/content/codeBlockViewMode.js"),
@@ -439,11 +481,137 @@ test("compact and expand can be repeated without breaking the header path", asyn
   ]);
 });
 
+test("native header stays stable after the native copy button disappears", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "This DOM-level verification targets Chromium behavior.");
+
+  const scripts = await Promise.all([
+    readScript("extension/shared/uiStyles.js"),
+    readScript("extension/content/pathMetadata.js"),
+    readScript("extension/content/codeBlockMetadata.js"),
+    readScript("extension/content/codeBlockState.js"),
+    readScript("extension/content/codeBlockViewMode.js"),
+    readScript("extension/content/codeBlockButtons.js"),
+    readScript("extension/content/codeBlocks.js"),
+  ]);
+
+  await page.setContent(buildFixtureHtml(), { waitUntil: "domcontentloaded" });
+  for (const script of scripts) {
+    await page.addScriptTag({ content: script });
+  }
+
+  const result = await page.evaluate(() => {
+    decorateCodeBlocks(document);
+    const targetPre = document.querySelectorAll("pre[data-cgpt-code-helper-applied='1']")[0];
+    targetPre.querySelector(".cgpt-mock-code-actions button[aria-label='Copy']")?.remove();
+    cgptSetPreViewMode(targetPre, CGPT_VIEW_MODE.COMPACT);
+    cgptSetPreViewMode(targetPre, CGPT_VIEW_MODE.EXPANDED);
+
+    const wrapper =
+      targetPre.parentElement && targetPre.parentElement.dataset.cgptCodeWrapper === "1"
+        ? targetPre.parentElement
+        : null;
+    const toggle = targetPre.querySelector("[data-cgpt-code-toggle='1']");
+    return {
+      standaloneHeaderCount: wrapper
+        ? wrapper.querySelectorAll(":scope > [data-cgpt-code-header='1']").length
+        : 0,
+      toggleInPre: Boolean(toggle),
+      toggleParentInPre: Boolean(toggle && targetPre.contains(toggle.parentElement)),
+      pathNodesInPre: Array.from(
+        targetPre.querySelectorAll("[data-cgpt-code-file-path='1']")
+      ).map((node) => node.textContent.trim()),
+      pathNodesOutsidePre: wrapper
+        ? Array.from(wrapper.querySelectorAll("[data-cgpt-code-file-path='1']"))
+            .filter((node) => !targetPre.contains(node))
+            .map((node) => node.textContent.trim())
+        : [],
+      actionPlacement:
+        targetPre.querySelector("[data-cgpt-code-actions='1']")?.dataset
+          ?.cgptCodeActionsPlacement || "",
+    };
+  });
+
+  expect(result).toEqual({
+    standaloneHeaderCount: 0,
+    toggleInPre: true,
+    toggleParentInPre: true,
+    pathNodesInPre: ["src/demo.py"],
+    pathNodesOutsidePre: [],
+    actionPlacement: "native-header",
+  });
+});
+
+test("user messages are excluded from code block decoration", async ({ page, browserName }) => {
+  test.skip(browserName !== "chromium", "This DOM-level verification targets Chromium behavior.");
+
+  const scripts = await Promise.all([
+    readScript("extension/shared/uiStyles.js"),
+    readScript("extension/content/pathMetadata.js"),
+    readScript("extension/content/codeBlockMetadata.js"),
+    readScript("extension/content/codeBlockState.js"),
+    readScript("extension/content/codeBlockViewMode.js"),
+    readScript("extension/content/codeBlockButtons.js"),
+    readScript("extension/content/codeBlocks.js"),
+  ]);
+
+  await page.setContent(`<!doctype html>
+<html lang="en">
+  <body>
+    <main>
+      <div data-message-author-role="user" data-message-id="user-1">
+        <p>PATH: src/user-note.ts</p>
+        <pre>
+          <div class="cgpt-mock-code-shell">
+            <div class="cgpt-mock-code-header">
+              <div class="cgpt-mock-code-label"><span>TypeScript</span></div>
+              <div class="cgpt-mock-code-actions"><button aria-label="Copy"></button></div>
+            </div>
+            <div class="cgpt-mock-code-body">
+              <code>console.log("user");</code>
+            </div>
+          </div>
+        </pre>
+      </div>
+    </main>
+  </body>
+</html>`, { waitUntil: "domcontentloaded" });
+  for (const script of scripts) {
+    await page.addScriptTag({ content: script });
+  }
+
+  const result = await page.evaluate(() => {
+    decorateCodeBlocks(document);
+    const decoratedPre = document.querySelector("pre[data-cgpt-code-helper-applied='1']");
+    const pre = document.querySelector("pre");
+    const sourcePathNode = pre ? pre.previousElementSibling : null;
+    return {
+      hasDecoratedPre: Boolean(decoratedPre),
+      sourcePathDisplay: sourcePathNode && sourcePathNode.style ? sourcePathNode.style.display || "" : "",
+      sourcePathHiddenFlag: sourcePathNode && sourcePathNode.dataset
+        ? sourcePathNode.dataset.cgptPathMetadataHidden || ""
+        : "",
+      pathInHeader: pre
+        ? Array.from(pre.querySelectorAll("[data-cgpt-code-file-path='1']"))
+            .map((node) => node.textContent.trim())
+            .join(" | ")
+        : "",
+    };
+  });
+
+  expect(result).toEqual({
+    hasDecoratedPre: false,
+    sourcePathDisplay: "",
+    sourcePathHiddenFlag: "",
+    pathInHeader: "",
+  });
+});
+
 test("header toggle switches compact mode from the left edge control", async ({ page, browserName }) => {
   test.skip(browserName !== "chromium", "This DOM-level verification targets Chromium behavior.");
 
   const scripts = await Promise.all([
     readScript("extension/shared/uiStyles.js"),
+    readScript("extension/content/pathMetadata.js"),
     readScript("extension/content/codeBlockMetadata.js"),
     readScript("extension/content/codeBlockState.js"),
     readScript("extension/content/codeBlockViewMode.js"),

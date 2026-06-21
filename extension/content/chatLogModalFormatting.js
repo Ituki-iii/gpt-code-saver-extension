@@ -91,35 +91,39 @@ function cgptCollectAssistantHeadingSections(entry, nextEntry, allEntries) {
 function cgptExtractFormattedCodeBlocksFromElement(element) {
   const results = [];
   if (!element) return results;
-  const seen = new Set();
-  const codeNodes = [];
-  ["pre code", "pre .cm-content"].forEach((selector) => {
-    if (!element.querySelectorAll) return;
-    element.querySelectorAll(selector).forEach((node) => {
-      if (!node || seen.has(node)) return;
-      seen.add(node);
-      codeNodes.push(node);
+  const seenBlocks = new Set();
+  const blockElements = [];
+  if (typeof element.querySelectorAll === "function") {
+    element.querySelectorAll("pre").forEach((pre) => {
+      if (!pre || seenBlocks.has(pre)) return;
+      const ancestorPre =
+        pre.parentElement && typeof pre.parentElement.closest === "function"
+          ? pre.parentElement.closest("pre")
+          : null;
+      if (ancestorPre && cgptGetChatLogCodeTextContainer(ancestorPre)) {
+        return;
+      }
+      if (!cgptGetChatLogCodeTextContainer(pre)) return;
+      seenBlocks.add(pre);
+      blockElements.push(pre);
     });
-  });
+  }
 
-  codeNodes.forEach((codeEl, index) => {
+  blockElements.forEach((blockElement, index) => {
+    const codeEl = cgptGetChatLogCodeTextContainer(blockElement) || blockElement;
     const rawText = codeEl.textContent || "";
     const normalized = cgptNormalizeChatLogLineEndings(rawText);
-    const lines = normalized.split("\n");
-    if (!lines.length) return;
-    const firstLine = lines[0].trim();
-    const match =
-      firstLine.match(/^\/\/\s*file:\s*(.+)$/i) || firstLine.match(/^#\s*file:\s*(.+)$/i);
-    const blockElement = codeEl.closest("pre") || codeEl;
     const language = cgptExtractCodeBlockLanguage(codeEl, blockElement);
-    if (match) {
-      const filePath = match[1].trim();
-      if (!filePath) return;
-      const content = lines.slice(1).join("\n");
+    const detectedPath =
+      typeof cgptResolvePathMetadataForBlock === "function"
+        ? cgptResolvePathMetadataForBlock(blockElement, { boundaryRoot: element })
+        : null;
+    if (detectedPath && detectedPath.filePath) {
+      const filePath = detectedPath.filePath;
       results.push({
         filePath,
         fileName: cgptDeriveFileName(filePath),
-        content,
+        content: normalized,
         element: blockElement,
         language,
         hasDetectedFilePath: true,
@@ -137,6 +141,11 @@ function cgptExtractFormattedCodeBlocksFromElement(element) {
     });
   });
   return results;
+}
+
+function cgptGetChatLogCodeTextContainer(blockElement) {
+  if (!blockElement || typeof blockElement.querySelector !== "function") return null;
+  return blockElement.querySelector("code, .cm-content");
 }
 
 function cgptExtractCodeBlockLanguage(codeElement, blockElement) {

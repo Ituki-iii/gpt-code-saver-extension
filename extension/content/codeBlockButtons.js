@@ -1,16 +1,25 @@
 const BUTTON_FEEDBACK_TIMEOUT_MS = 1500;
 
-function cgptCreateButtonContainer() {
+function cgptCreateButtonContainer(placement = "standalone") {
   const container = document.createElement("div");
   container.dataset.cgptCodeActions = "1";
-  container.style.display = "inline-flex";
-  container.style.gap = "6px";
+  container.dataset.cgptCodeActionsPlacement = placement;
+  container.style.display = placement === "native-header" ? "inline-flex" : "flex";
+  container.style.gap = placement === "native-header" ? "4px" : "6px";
+  container.style.rowGap = "0";
   container.style.alignItems = "center";
-  container.style.position = "absolute";
-  container.style.top = "8px";
-  container.style.right = "16px";
-  container.style.zIndex = "2";
-  container.style.display = "flex";
+  container.style.justifyContent = "flex-end";
+  container.style.flexWrap = "nowrap";
+  container.style.width = placement === "native-header" ? "auto" : "100%";
+  container.style.maxWidth = "100%";
+  container.style.boxSizing = "border-box";
+  container.style.marginBottom = placement === "native-header" ? "0" : "8px";
+  container.style.position = "relative";
+  container.style.zIndex = "1";
+  container.style.overflowX = "auto";
+  container.style.overflowY = "hidden";
+  container.style.scrollbarWidth = "none";
+  container.style.flex = placement === "native-header" ? "0 1 auto" : "0 0 auto";
   return container;
 }
 
@@ -27,8 +36,15 @@ function cgptCreateBaseButtonElement(placement = "overlay") {
     button.style.cursor = "pointer";
     button.style.transition = "opacity 0.2s ease";
   }
+  if (placement === "toolbar") {
+    button.style.fontSize = "10px";
+    button.style.minHeight = "24px";
+    button.style.padding = "0 6px";
+  }
   button.style.position = placement === "toolbar" ? "relative" : "relative";
   button.style.zIndex = placement === "toolbar" ? "1" : "2";
+  button.style.flex = "0 0 auto";
+  button.style.whiteSpace = "nowrap";
   return button;
 }
 
@@ -50,17 +66,17 @@ function cgptApplyButtonVariant(button, variant) {
   button.style.border = "1px solid rgba(255,255,255,0.4)";
 }
 
-function cgptCreateSaveButtonElement(hasMetadata = true) {
-  const button = cgptCreateBaseButtonElement("overlay");
+function cgptCreateSaveButtonElement(canSave = true) {
+  const button = cgptCreateBaseButtonElement("toolbar");
   button.textContent = "Save";
   button.title = "Save to the project folder";
-  cgptApplyButtonVariant(button, hasMetadata ? "primary" : "secondary");
-  cgptSetButtonDisabled(button, !hasMetadata);
+  cgptApplyButtonVariant(button, canSave ? "primary" : "secondary");
+  cgptSetButtonDisabled(button, !canSave);
   return button;
 }
 
 function cgptCreateSaveAsButtonElement() {
-  const button = cgptCreateBaseButtonElement("overlay");
+  const button = cgptCreateBaseButtonElement("toolbar");
   button.textContent = "Save As";
   button.title = "Choose where to save this code";
   cgptApplyButtonVariant(button, "secondary");
@@ -68,7 +84,7 @@ function cgptCreateSaveAsButtonElement() {
 }
 
 function cgptCreateCopyButtonElement() {
-  const button = cgptCreateBaseButtonElement("overlay");
+  const button = cgptCreateBaseButtonElement("toolbar");
   button.textContent = "Copy";
   button.title = "Copy code";
   cgptApplyButtonVariant(button, "ghost");
@@ -76,7 +92,7 @@ function cgptCreateCopyButtonElement() {
 }
 
 function cgptCreateShrinkButtonElement() {
-  const button = cgptCreateBaseButtonElement("overlay");
+  const button = cgptCreateBaseButtonElement("toolbar");
   button.textContent = "Compact";
   button.title = "Show a single line";
   cgptApplyButtonVariant(button, "secondary");
@@ -84,20 +100,55 @@ function cgptCreateShrinkButtonElement() {
 }
 
 function cgptCreateExpandButtonElement() {
-  const button = cgptCreateBaseButtonElement("overlay");
+  const button = cgptCreateBaseButtonElement("toolbar");
   button.textContent = "Expand";
   button.title = "Show all lines";
   cgptApplyButtonVariant(button, "secondary");
   return button;
 }
 
+function cgptGetOrCreateGeneratedRelativeFilePath(pre) {
+  const state =
+    pre && typeof cgptGetCodeBlockState === "function" ? cgptGetCodeBlockState(pre) : null;
+  if (state && state.generatedFilePath) {
+    return state.generatedFilePath;
+  }
+  const nextPath = cgptGenerateDefaultRelativeFilePath();
+  if (state) {
+    state.generatedFilePath = nextPath;
+  }
+  return nextPath;
+}
+
+function cgptResolveCodeBlockPathInfo(pre, code, options = {}) {
+  const blockElement =
+    pre ||
+    (code && typeof code.closest === "function" ? code.closest("pre") : null) ||
+    code ||
+    null;
+  const detectedPath =
+    blockElement && typeof cgptResolvePathMetadataForBlock === "function"
+      ? cgptResolvePathMetadataForBlock(blockElement, options)
+      : null;
+  if (detectedPath && detectedPath.filePath) {
+    return {
+      filePath: detectedPath.filePath,
+      hasDetectedFilePath: true,
+      node: detectedPath.node || null,
+      source: detectedPath.source || "path-line",
+    };
+  }
+  return {
+    filePath: cgptGetOrCreateGeneratedRelativeFilePath(pre),
+    hasDetectedFilePath: false,
+    source: "generated",
+  };
+}
+
 function cgptHandleSaveButtonClick(button, code, pre) {
-  const parsed = cgptParseCodeBlockMetadata(code);
-  if (!parsed) {
-    if (pre) {
-      const metadata = cgptRefreshSaveButtonState(pre, code);
-    }
-    const errMsg = "Add // file: path/to/file on the first line to save to the project folder.";
+  const pathInfo = cgptRefreshSaveButtonState(pre, code);
+  if (!pathInfo || !pathInfo.filePath) {
+    const errMsg = "Add a PATH: relative/path line immediately before the code block or use Save As.";
     if (typeof showToast === "function") {
       showToast(errMsg, "error");
     } else {
@@ -106,15 +157,14 @@ function cgptHandleSaveButtonClick(button, code, pre) {
     return;
   }
 
-  const { filePath } = parsed;
-  const content = cgptGetContentForSave(parsed, code);
-  cgptTriggerApplyCode(button, filePath, content);
+  const content = cgptGetContentForSave(code);
+  cgptTriggerApplyCode(button, pathInfo.filePath, content);
 }
 
-function cgptHandleSaveAsButtonClick(button, code) {
-  const parsed = cgptParseCodeBlockMetadata(code);
-  const filePath = cgptGetSuggestedRelativeFilePath(parsed);
-  const content = cgptGetContentForSave(parsed, code);
+function cgptHandleSaveAsButtonClick(button, code, pre) {
+  const pathInfo = cgptResolveCodeBlockPathInfo(pre, code);
+  const filePath = cgptGetSuggestedRelativeFilePath(pathInfo);
+  const content = cgptGetContentForSave(code);
   cgptTriggerApplyCode(button, filePath, content, {
     mode: typeof CGPT_SAVE_MODES !== "undefined" ? CGPT_SAVE_MODES.SAVE_AS : "saveAs",
   });
@@ -145,8 +195,7 @@ function cgptTriggerApplyCode(button, filePath, content, options = {}) {
 }
 
 function cgptHandleCopyButtonClick(button, code) {
-  const parsed = cgptParseCodeBlockMetadata(code);
-  const textToCopy = parsed && parsed.content ? parsed.content : cgptGetNormalizedCodeText(code);
+  const textToCopy = cgptGetNormalizedCodeText(code);
   if (!textToCopy) return;
 
   const onSuccess = () => {
@@ -186,50 +235,13 @@ function cgptHandleCopyButtonClick(button, code) {
   }
 }
 
-function cgptGetContentForSave(parsedMetadata, code) {
-  if (parsedMetadata) {
-    const shouldStrip =
-      typeof cgptShouldStripMetadataLine === "function"
-        ? cgptShouldStripMetadataLine()
-        : true;
-    if (shouldStrip) {
-      return parsedMetadata.content || "";
-    }
-    const metadataLine = parsedMetadata.metadataLine || "";
-    if (!metadataLine) {
-      return cgptGetNormalizedCodeText(code);
-    }
-    return parsedMetadata.content
-      ? `${metadataLine}\n${parsedMetadata.content}`
-      : metadataLine;
-  }
-  const normalized = cgptGetNormalizedCodeText(code);
-  return cgptStripFirstLineIfNeeded(normalized);
+function cgptGetContentForSave(code) {
+  return cgptGetNormalizedCodeText(code);
 }
 
-function cgptStripFirstLineIfNeeded(text) {
-  if (!text || typeof cgptShouldStripMetadataLine !== "function") {
-    return text;
-  }
-  if (!cgptShouldStripMetadataLine()) {
-    return text;
-  }
-  const normalized = text.replace(/\r\n/g, "\n");
-  const [firstLine, ...rest] = normalized.split("\n");
-  if (!cgptLineLooksLikeFileInstruction(firstLine)) {
-    return normalized;
-  }
-  return rest.join("\n");
-}
-
-function cgptLineLooksLikeFileInstruction(line) {
-  if (!line) return false;
-  return /^\s*(?:\/\/|#)?\s*file\s*:/.test(line);
-}
-
-function cgptGetSuggestedRelativeFilePath(parsedMetadata) {
-  if (parsedMetadata && parsedMetadata.filePath) {
-    return parsedMetadata.filePath;
+function cgptGetSuggestedRelativeFilePath(pathInfo) {
+  if (pathInfo && pathInfo.filePath) {
+    return pathInfo.filePath;
   }
   return cgptGenerateDefaultRelativeFilePath();
 }
@@ -260,7 +272,7 @@ function cgptHandleExpandButtonClick(pre) {
   cgptSetPreViewMode(pre, CGPT_VIEW_MODE.EXPANDED);
 }
 
-function cgptRefreshSaveButtonState(pre, code, metadataOverride) {
+function cgptRefreshSaveButtonState(pre, code, pathInfoOverride) {
   if (!pre || !code) return null;
   const state =
     typeof cgptGetCodeBlockState === "function" ? cgptGetCodeBlockState(pre) : null;
@@ -275,20 +287,24 @@ function cgptRefreshSaveButtonState(pre, code, metadataOverride) {
     }
   }
 
-  const metadata =
-    metadataOverride !== undefined ? metadataOverride : cgptParseCodeBlockMetadata(code);
-  const hasMetadata = Boolean(metadata);
-  saveButton.title = hasMetadata
-    ? "Save to the project folder"
-    : "Add // file: path/to/file to the first line to enable Save";
-  cgptApplyButtonVariant(saveButton, hasMetadata ? "primary" : "secondary");
-  cgptSetButtonDisabled(saveButton, !hasMetadata);
-  pre.dataset.cgptHasMetadata = hasMetadata ? "1" : "0";
-  pre.dataset.cgptFilePath = hasMetadata && metadata.filePath ? metadata.filePath : "";
+  const pathInfo =
+    pathInfoOverride !== undefined ? pathInfoOverride : cgptResolveCodeBlockPathInfo(pre, code);
+  const canSave = Boolean(pathInfo && pathInfo.filePath);
+  saveButton.title = canSave
+    ? pathInfo.hasDetectedFilePath
+      ? "Save to the project folder"
+      : `Save to the project folder as ${pathInfo.filePath}`
+    : "Add a PATH: relative/path line immediately before the code block to enable Save";
+  cgptApplyButtonVariant(saveButton, canSave ? "primary" : "secondary");
+  cgptSetButtonDisabled(saveButton, !canSave);
+  pre.dataset.cgptHasResolvedPath = canSave ? "1" : "0";
+  pre.dataset.cgptHasDetectedPath =
+    canSave && pathInfo.hasDetectedFilePath ? "1" : "0";
+  pre.dataset.cgptFilePath = canSave ? pathInfo.filePath || "" : "";
   if (state) {
-    state.metadata = metadata || null;
+    state.pathInfo = pathInfo || null;
   }
-  return metadata;
+  return pathInfo;
 }
 
 function cgptSetButtonDisabled(button, disabled) {
@@ -304,6 +320,9 @@ function cgptSetButtonDisabled(button, disabled) {
 
 function cgptCalculateButtonOverlayOffset(container) {
   if (!container) return 0;
+  if (container.dataset && container.dataset.cgptCodeActionsPlacement !== "overlay") {
+    return 0;
+  }
   const rect =
     typeof container.getBoundingClientRect === "function"
       ? container.getBoundingClientRect()

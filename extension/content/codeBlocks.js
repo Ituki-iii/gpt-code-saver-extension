@@ -18,6 +18,12 @@ function cgptGetCompactContentHost(pre) {
 
 function cgptFindNativeHeaderLabelContainer(pre) {
   if (!pre || typeof pre.querySelectorAll !== "function") return null;
+  const existingPathHost = pre.querySelector("[data-cgpt-code-path-host='1']");
+  if (existingPathHost) return existingPathHost;
+  const existingPathNode = pre.querySelector("[data-cgpt-code-file-path='1']");
+  if (existingPathNode && existingPathNode.parentElement) {
+    return existingPathNode.parentElement;
+  }
   const buttons = Array.from(pre.querySelectorAll("button[aria-label]"));
   const copyButton = buttons.find((button) => {
     const label = button.getAttribute("aria-label") || "";
@@ -41,8 +47,16 @@ function cgptFindNativeHeaderLabelContainer(pre) {
   const isCompactLabelTarget = (element) => {
     if (!element || hasCodeContentDescendant(element)) return null;
     if (
+      element.tagName === "BUTTON" ||
+      (typeof element.closest === "function" &&
+        element.closest("[data-cgpt-code-actions='1'], .cgpt-mock-code-actions"))
+    ) {
+      return false;
+    }
+    if (
       element.dataset &&
       (
+        element.dataset.cgptCodeActions === "1" ||
         element.dataset.cgptCodeFilePath === "1" ||
         element.dataset.cgptCodePathHost === "1" ||
         element.dataset.cgptCodeToggle === "1"
@@ -85,10 +99,137 @@ function cgptFindNativeHeaderLabelContainer(pre) {
   return null;
 }
 
-function cgptSyncCompactHeaderPath(pre, metadata, mode) {
+function cgptFindNativeHeaderActionsContainer(pre) {
+  if (!pre || typeof pre.querySelectorAll !== "function") return null;
+  const existingActions = pre.querySelector(
+    "[data-cgpt-code-actions='1'][data-cgpt-code-actions-placement='native-header']"
+  );
+  if (existingActions && existingActions.parentElement) {
+    return existingActions.parentElement;
+  }
+  const buttons = Array.from(pre.querySelectorAll("button[aria-label]"));
+  const copyButton = buttons.find((button) => {
+    const label = button.getAttribute("aria-label") || "";
+    return /copy|コピー/i.test(label);
+  });
+  if (!copyButton || !copyButton.parentElement) return null;
+  return copyButton.parentElement;
+}
+
+function cgptEnsureStandaloneHeader(pre) {
+  if (!pre || !pre.parentElement || pre.parentElement.dataset.cgptCodeWrapper !== "1") {
+    return null;
+  }
+  const wrapper = pre.parentElement;
+  let header = wrapper.querySelector(":scope > [data-cgpt-code-header='1']");
+  if (!header) {
+    header = document.createElement("div");
+    header.dataset.cgptCodeHeader = "1";
+    header.style.display = "flex";
+    header.style.alignItems = "center";
+    header.style.justifyContent = "space-between";
+    header.style.gap = "8px";
+    header.style.width = "100%";
+    header.style.maxWidth = "100%";
+    header.style.boxSizing = "border-box";
+    header.style.marginBottom = "8px";
+    header.style.overflow = "hidden";
+
+    const labelHost = document.createElement("div");
+    labelHost.dataset.cgptCodeLabelHost = "1";
+    labelHost.style.display = "flex";
+    labelHost.style.alignItems = "center";
+    labelHost.style.minWidth = "0";
+    labelHost.style.flex = "1 1 auto";
+    labelHost.style.overflow = "hidden";
+
+    const actionsHost = document.createElement("div");
+    actionsHost.dataset.cgptCodeActionsHost = "1";
+    actionsHost.style.display = "flex";
+    actionsHost.style.alignItems = "center";
+    actionsHost.style.justifyContent = "flex-end";
+    actionsHost.style.flex = "0 0 auto";
+    actionsHost.style.minWidth = "0";
+
+    header.appendChild(labelHost);
+    header.appendChild(actionsHost);
+    wrapper.insertBefore(header, pre);
+  }
+  return header;
+}
+
+function cgptMoveChildrenPreservingOrder(source, target, { prepend = false } = {}) {
+  if (!source || !target) return;
+  const nodes = Array.from(source.childNodes || []).filter((node) => {
+    return !(
+      node.nodeType === Node.TEXT_NODE &&
+      !String(node.textContent || "").trim()
+    );
+  });
+  nodes.forEach((node) => {
+    if (prepend && target.firstChild) {
+      target.insertBefore(node, target.firstChild);
+    } else {
+      target.appendChild(node);
+    }
+  });
+}
+
+function cgptReconcileStandaloneHeaderWithNativeHeader(pre) {
+  if (!pre || !pre.parentElement || pre.parentElement.dataset.cgptCodeWrapper !== "1") {
+    return;
+  }
+  const wrapper = pre.parentElement;
+  const standaloneHeader = wrapper.querySelector(":scope > [data-cgpt-code-header='1']");
+  if (!standaloneHeader) return;
+
+  const nativeLabelHost = cgptFindNativeHeaderLabelContainer(pre);
+  const nativeActionsHost = cgptFindNativeHeaderActionsContainer(pre);
+  if (!nativeLabelHost && !nativeActionsHost) return;
+
+  const standaloneLabelHost =
+    standaloneHeader.querySelector(":scope > [data-cgpt-code-label-host='1']");
+  const standaloneActionsHost =
+    standaloneHeader.querySelector(":scope > [data-cgpt-code-actions-host='1']");
+
+  if (nativeLabelHost && standaloneLabelHost) {
+    cgptMoveChildrenPreservingOrder(standaloneLabelHost, nativeLabelHost, { prepend: true });
+  }
+  if (nativeActionsHost && standaloneActionsHost) {
+    cgptMoveChildrenPreservingOrder(standaloneActionsHost, nativeActionsHost);
+  }
+
+  standaloneHeader.remove();
+}
+
+function cgptFindCodeHeaderLabelContainer(pre) {
+  const native = cgptFindNativeHeaderLabelContainer(pre);
+  if (native) {
+    cgptReconcileStandaloneHeaderWithNativeHeader(pre);
+    return native;
+  }
+  const standaloneHeader = cgptEnsureStandaloneHeader(pre);
+  return standaloneHeader
+    ? standaloneHeader.querySelector(":scope > [data-cgpt-code-label-host='1']")
+    : null;
+}
+
+function cgptFindCodeHeaderActionsContainer(pre) {
+  const native = cgptFindNativeHeaderActionsContainer(pre);
+  if (native) {
+    cgptReconcileStandaloneHeaderWithNativeHeader(pre);
+    return native;
+  }
+  const standaloneHeader = cgptEnsureStandaloneHeader(pre);
+  return standaloneHeader
+    ? standaloneHeader.querySelector(":scope > [data-cgpt-code-actions-host='1']")
+    : null;
+}
+
+function cgptSyncCompactHeaderPath(pre, pathInfo, mode) {
   if (!pre) return;
   const existingNodes = Array.from(pre.querySelectorAll("[data-cgpt-code-file-path='1']"));
-  if (!metadata || !metadata.filePath) {
+  if (!pathInfo || !pathInfo.filePath || !pathInfo.hasDetectedFilePath) {
     existingNodes.forEach((node) => node.remove());
     pre.querySelectorAll("[data-cgpt-code-path-host='1']").forEach((node) => {
       delete node.dataset.cgptCodePathHost;
@@ -96,7 +237,10 @@ function cgptSyncCompactHeaderPath(pre, metadata, mode) {
     return;
   }
 
-  const container = cgptFindNativeHeaderLabelContainer(pre);
+  const container =
+    typeof cgptFindCodeHeaderLabelContainer === "function"
+      ? cgptFindCodeHeaderLabelContainer(pre)
+      : cgptFindNativeHeaderLabelContainer(pre);
   if (!container) {
     existingNodes.forEach((node) => node.remove());
     return;
@@ -123,24 +267,63 @@ function cgptSyncCompactHeaderPath(pre, metadata, mode) {
 
   const pathEl = existing || document.createElement("span");
   pathEl.dataset.cgptCodeFilePath = "1";
-  const nextPathText = ` ${metadata.filePath}`;
+  const nextPathText = ` ${pathInfo.filePath}`;
   if (pathEl.textContent !== nextPathText) {
     pathEl.textContent = nextPathText;
   }
-  if (pathEl.title !== metadata.filePath) {
-    pathEl.title = metadata.filePath;
+  if (pathEl.title !== pathInfo.filePath) {
+    pathEl.title = pathInfo.filePath;
   }
   pathEl.style.marginInlineStart = "8px";
-  pathEl.style.fontSize = "11px";
+  pathEl.style.fontSize = "inherit";
   pathEl.style.fontWeight = "500";
-  pathEl.style.lineHeight = "1.2";
-  pathEl.style.opacity = "0.78";
+  pathEl.style.lineHeight = "inherit";
+  pathEl.style.opacity = "1";
+  pathEl.style.display = "inline-flex";
+  pathEl.style.alignItems = "center";
+  pathEl.style.padding = "3px 8px";
+  pathEl.style.borderRadius = "8px";
+  pathEl.style.backgroundColor = "rgba(59, 130, 246, 0.18)";
+  pathEl.style.border = "1px solid rgba(59, 130, 246, 0.3)";
+  pathEl.style.boxSizing = "border-box";
   pathEl.style.overflow = "hidden";
   pathEl.style.textOverflow = "ellipsis";
   pathEl.style.whiteSpace = "nowrap";
   pathEl.style.maxWidth = "100%";
   if (!existing) {
     container.appendChild(pathEl);
+  }
+}
+
+function cgptSyncPathMetadataVisibility(pre, pathInfo) {
+  if (!pre) return;
+  const state =
+    typeof cgptGetCodeBlockState === "function" ? cgptGetCodeBlockState(pre) : null;
+  const previousNode = state ? state.pathMetadataNode || null : null;
+  const roleHost =
+    typeof pre.closest === "function" ? pre.closest("[data-message-author-role]") : null;
+  const role = roleHost ? String(roleHost.getAttribute("data-message-author-role") || "").toLowerCase() : "";
+  const shouldHideDetectedPath =
+    pathInfo &&
+    pathInfo.hasDetectedFilePath &&
+    pathInfo.node &&
+    (!role || role === "assistant");
+  const nextNode = shouldHideDetectedPath ? pathInfo.node : null;
+
+  if (
+    previousNode &&
+    previousNode !== nextNode &&
+    typeof cgptSetPathMetadataVisibility === "function"
+  ) {
+    cgptSetPathMetadataVisibility(previousNode, false);
+  }
+
+  if (nextNode && typeof cgptSetPathMetadataVisibility === "function") {
+    cgptSetPathMetadataVisibility(nextNode, true);
+  }
+
+  if (state) {
+    state.pathMetadataNode = nextNode || null;
   }
 }
 
@@ -152,21 +335,33 @@ function cgptGetDecoratableCodeContent(pre) {
   return pre.querySelector("code, .cm-content");
 }
 
+function cgptIsAssistantCodeBlock(pre) {
+  if (!pre || typeof pre.closest !== "function") {
+    return true;
+  }
+  const roleHost = pre.closest("[data-message-author-role]");
+  if (!roleHost || typeof roleHost.getAttribute !== "function") {
+    return true;
+  }
+  const role = String(roleHost.getAttribute("data-message-author-role") || "").toLowerCase();
+  return !role || role === "assistant";
+}
+
 function cgptCollectDecoratablePres(root) {
   const collected = [];
   const seen = new Set();
 
   const addPre = (pre) => {
     if (!pre || seen.has(pre)) return;
-    if (
-      typeof pre.querySelector === "function" &&
-      Array.from(pre.querySelectorAll("pre")).some((nestedPre) =>
-        nestedPre !== pre && cgptGetDecoratableCodeContent(nestedPre)
-      )
-    ) {
+    const ancestorPre =
+      pre.parentElement && typeof pre.parentElement.closest === "function"
+        ? pre.parentElement.closest("pre")
+        : null;
+    if (ancestorPre && cgptGetDecoratableCodeContent(ancestorPre)) {
       return;
     }
     if (!cgptGetDecoratableCodeContent(pre)) return;
+    if (!cgptIsAssistantCodeBlock(pre)) return;
     seen.add(pre);
     collected.push(pre);
   };
@@ -193,18 +388,29 @@ function tryDecorateSingleCodeBlock(pre) {
   const code = cgptGetDecoratableCodeContent(pre);
   if (!code) return;
 
-  const metadata = cgptParseCodeBlockMetadata(code);
   const isAlreadyDecorated = pre.dataset.cgptCodeHelperApplied === "1";
   const state =
     typeof cgptGetCodeBlockState === "function" ? cgptGetCodeBlockState(pre) : null;
+  const pathInfo =
+    typeof cgptResolveCodeBlockPathInfo === "function"
+      ? cgptResolveCodeBlockPathInfo(pre, code)
+      : null;
+  if (typeof cgptReconcileStandaloneHeaderWithNativeHeader === "function") {
+    cgptReconcileStandaloneHeaderWithNativeHeader(pre);
+  }
 
   if (!isAlreadyDecorated) {
     const wrapper = cgptWrapPreWithRelativeContainer(pre);
     pre.dataset.cgptCodeHelperApplied = "1";
+    const actionsHost =
+      typeof cgptFindCodeHeaderActionsContainer === "function"
+        ? cgptFindCodeHeaderActionsContainer(pre)
+        : null;
+    const buttonContainer = cgptCreateButtonContainer(
+      actionsHost ? "native-header" : "standalone"
+    );
 
-    const buttonContainer = cgptCreateButtonContainer();
-
-    const saveBtn = cgptCreateSaveButtonElement(Boolean(metadata));
+    const saveBtn = cgptCreateSaveButtonElement(Boolean(pathInfo && pathInfo.filePath));
     saveBtn.dataset.cgptButtonRole = "save";
     if (state) {
       state.saveButton = saveBtn;
@@ -222,11 +428,13 @@ function tryDecorateSingleCodeBlock(pre) {
     });
     buttonContainer.appendChild(saveAsBtn);
 
-    const copyBtn = cgptCreateCopyButtonElement();
-    copyBtn.addEventListener("click", () => {
-      cgptHandleCopyButtonClick(copyBtn, code);
-    });
-    buttonContainer.appendChild(copyBtn);
+    if (!actionsHost || actionsHost.dataset.cgptCodeActionsHost === "1") {
+      const copyBtn = cgptCreateCopyButtonElement();
+      copyBtn.addEventListener("click", () => {
+        cgptHandleCopyButtonClick(copyBtn, code);
+      });
+      buttonContainer.appendChild(copyBtn);
+    }
 
     const shrinkBtn = cgptCreateShrinkButtonElement();
     const expandBtn = cgptCreateExpandButtonElement();
@@ -239,7 +447,11 @@ function tryDecorateSingleCodeBlock(pre) {
     buttonContainer.appendChild(shrinkBtn);
     buttonContainer.appendChild(expandBtn);
 
-    wrapper.appendChild(buttonContainer);
+    if (actionsHost) {
+      actionsHost.insertBefore(buttonContainer, actionsHost.firstChild);
+    } else {
+      wrapper.insertBefore(buttonContainer, pre);
+    }
     buttonContainer.addEventListener("mouseenter", () => {
       cgptRefreshSaveButtonState(pre, code);
     });
@@ -257,15 +469,18 @@ function tryDecorateSingleCodeBlock(pre) {
     cgptEnsureCollapsibleState(pre);
     if (state) {
       state.viewButtons = { shrinkBtn, expandBtn };
-      state.metadata = metadata || null;
+      state.pathInfo = pathInfo || null;
     }
     cgptSetPreViewMode(pre, CGPT_VIEW_MODE.EXPANDED);
   }
 
   if (state) {
-    state.metadata = metadata || null;
+    state.pathInfo = pathInfo || null;
   }
-  cgptRefreshSaveButtonState(pre, code, metadata);
+  if (typeof cgptSyncPathMetadataVisibility === "function") {
+    cgptSyncPathMetadataVisibility(pre, pathInfo);
+  }
+  cgptRefreshSaveButtonState(pre, code, pathInfo);
 }
 
 function cgptResetCodeBlockHelperState(pre) {
@@ -308,6 +523,9 @@ function cgptResetCodeBlockHelperState(pre) {
     root
       .querySelectorAll(
         [
+          "[data-cgpt-code-header='1']",
+          "[data-cgpt-code-label-host='1']",
+          "[data-cgpt-code-actions-host='1']",
           "[data-cgpt-code-actions='1']",
           "[data-cgpt-code-collapse-cue='1']",
           "[data-cgpt-code-collapse-top-cue='1']",
@@ -336,7 +554,8 @@ function cgptResetCodeBlockHelperState(pre) {
   delete pre.dataset.cgptCodeHelperApplied;
   delete pre.dataset.cgptCollapsibleApplied;
   delete pre.dataset.cgptViewMode;
-  delete pre.dataset.cgptHasMetadata;
+  delete pre.dataset.cgptHasResolvedPath;
+  delete pre.dataset.cgptHasDetectedPath;
   delete pre.dataset.cgptFilePath;
   delete pre.dataset.cgptOriginalOverflow;
   delete pre.dataset.cgptOriginalMaxHeight;
@@ -352,11 +571,18 @@ function cgptResetCodeBlockHelperState(pre) {
   }
 
   if (state) {
+    if (
+      state.pathMetadataNode &&
+      typeof cgptSetPathMetadataVisibility === "function"
+    ) {
+      cgptSetPathMetadataVisibility(state.pathMetadataNode, false);
+    }
     state.saveButton = null;
     state.buttonContainer = null;
     state.buttonOverlayOffset = null;
     state.viewButtons = null;
-    state.metadata = null;
+    state.pathInfo = null;
+    state.pathMetadataNode = null;
   }
 
   if (wrapper && wrapper.parentNode) {
@@ -370,6 +596,13 @@ function cgptResetCodeBlockHelperState(pre) {
 function cgptReapplyCodeSaverDecorations(root = document) {
   if (!root || typeof root.querySelectorAll !== "function") return;
   cgptEnsureCodeBlockStyles();
+  root
+    .querySelectorAll("pre[data-cgpt-code-helper-applied='1']")
+    .forEach((pre) => {
+      if (!cgptIsAssistantCodeBlock(pre)) {
+        cgptResetCodeBlockHelperState(pre);
+      }
+    });
   const pres = cgptCollectDecoratablePres(root);
   pres.forEach((pre) => {
     const mode = cgptResetCodeBlockHelperState(pre);
