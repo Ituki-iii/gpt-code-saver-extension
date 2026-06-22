@@ -90,12 +90,16 @@ async function waitForLatestApplyLog(serviceWorker) {
 }
 
 async function saveMockCodeBlock(page) {
+  await expect(page.locator("[data-cgpt-code-wrapper='1'] pre").first()).toHaveAttribute(
+    "data-cgpt-has-detected-path",
+    "1"
+  );
   const projectFolderInput = page.locator("input[placeholder='e.g. dev/my-project']");
   await projectFolderInput.fill("workspace");
   await page.getByRole("button", { name: "Set Project Folder" }).click();
   await expect(page.locator("#cgpt-helper-toast")).toContainText("Project folder saved: workspace");
   const saveButton = page.locator("[data-cgpt-code-wrapper='1'] button[data-cgpt-button-role='save']");
-  await page.locator("[data-cgpt-code-wrapper='1']").hover();
+  await expect(saveButton).toBeVisible();
   await saveButton.click();
 }
 
@@ -126,7 +130,6 @@ test.describe("UI screen checks @ui-evidence", () => {
       const panel = page.locator("#cgpt-code-helper-panel");
       await expect(panel).toContainText("Extension");
       await expect(panel).toContainText("Project Folder");
-      await expect(panel).toContainText("Save Options");
       await expect(panel).toContainText("Display");
       await expect(panel).toContainText("View Controls");
       await expect(panel).toContainText("Logs");
@@ -204,11 +207,10 @@ test.describe("UI screen checks @ui-evidence", () => {
       await expect(panel).toBeVisible();
       await expect(panel).toContainText("Bulk Chats");
       await expect(panel.locator("#cgpt-helper-sidebar-bulk-search")).toBeVisible();
+      await expect(panel).toContainText("Project unavailable");
       await expect(panel).toContainText("Select All");
-      await expect(panel).toContainText("Add to Project");
-      await expect(panel.locator("#cgpt-helper-sidebar-bulk-project-select")).toBeVisible();
-      await expect(panel.getByRole("button", { name: "Rename chat" }).first()).toBeVisible();
-      await expect(panel.getByRole("button", { name: "Rename" })).toHaveCount(0);
+      await expect(panel).toContainText("Bulk Rename");
+      await expect(panel).toContainText("No visible chats match the current filter.");
       await panel.screenshot({ path: path.join(screenshotDir, "sidebar-bulk-panel.png") });
     } finally {
       await page.close().catch(() => {});

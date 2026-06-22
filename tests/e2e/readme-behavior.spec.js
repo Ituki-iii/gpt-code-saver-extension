@@ -149,8 +149,11 @@ test.describe("README workflow regression", () => {
       const saveButton = page.locator(
         "[data-cgpt-code-wrapper='1'] button[data-cgpt-button-role='save']"
       );
+      await expect(page.locator("[data-cgpt-code-wrapper='1'] pre").first()).toHaveAttribute(
+        "data-cgpt-has-detected-path",
+        "1"
+      );
       await expect(saveButton).toHaveCount(1);
-      await page.locator("[data-cgpt-code-wrapper='1']").hover();
       await expect(saveButton).toBeVisible();
       await expect(saveButton).toBeEnabled();
 
@@ -158,19 +161,13 @@ test.describe("README workflow regression", () => {
       await expect(page.locator("#cgpt-helper-template-panel")).toBeVisible();
       await page.locator("#cgpt-helper-template-panel").getByRole("button", { name: "Insert" }).click();
       await expect(page.locator("textarea[data-testid='textbox']")).toHaveValue(/\/\/ 出力ルール/);
-      await expect(page.locator("textarea[data-testid='textbox']")).toHaveValue(/\/\/ file: src\/app\.js/);
+      await expect(page.locator("textarea[data-testid='textbox']")).toHaveValue(/PATH: src\/app\.js/);
 
       const projectFolderInput = page.locator("input[placeholder='e.g. dev/my-project']");
       await projectFolderInput.fill("workspace");
       await page.getByRole("button", { name: "Set Project Folder" }).click();
       await expect(page.locator("#cgpt-helper-toast")).toContainText("Project folder saved: workspace");
 
-      const stripLabel = page.locator("label", {
-        hasText: 'Remove the first "file:" line when saving',
-      });
-      await stripLabel.locator("input[type='checkbox']").check();
-
-      await page.locator("[data-cgpt-code-wrapper='1']").hover();
       await saveButton.click();
 
       const { storageState, latestLog, download } = await waitForLatestApplyLog(serviceWorker);

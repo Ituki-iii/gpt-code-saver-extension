@@ -110,3 +110,16 @@
 - `done`: Chat Log code block extraction now includes plain fenced code blocks without `file:` metadata.
 - `done`: Plain fenced code blocks receive generated save paths under `chat-code-blocks/` so Chat Log `Save` and `Save As` stay enabled.
 - `done`: Shared-page-style regression is pinned by `tests/fixtures/chatgpt-share-code-blocks.html` and `tests/e2e/chatgpt-share-code-blocks-offline.spec.js`.
+
+## 2026-06-19 UI Inventory Notes
+
+- `done`: UI 整理時の再発防止ルールを追加した。
+- `done`: 実装済み操作の棚卸しと、提案上の追加操作を明確に分離する方針を `AGENTS.md` と `DEVELOPERS.md` に記録した。
+- `done`: 今後の UI ツリー表示では、現状 UI と整理後 UI を混在させない。
+
+## 2026-06-22 Docs Refresh
+
+- `done`: README を現行 UI に合わせて更新した。
+- `done`: `Quick Settings` / `Templates` / `Chat Log` / `Bulk Chats` の独立入口を README に反映した。
+- `done`: `docs/images/readme/` のキャプチャを `npm run capture:readme-screens:x11` で再生成した。
+- `done`: `DEVELOPERS.md` と `PLAYWRIGHT_VERIFICATION.md` に README 画像更新手順を追記した。

@@ -26,6 +26,7 @@
     "test:e2e:ui-pattern-fixtures": "node tests/tools/run-playwright.js test --config tests/playwright.regression.config.js tests/e2e/chatgpt-ui-patterns-offline.spec.js",
     "test:e2e:ui-pattern-extension-fixtures": "node tests/tools/run-playwright.js test --config tests/playwright.regression.config.js tests/e2e/chatgpt-ui-patterns-extension-offline.spec.js",
     "fetch:share-assets": "node tests/tools/fetch-chatgpt-share-assets.js",
+    "capture:readme-screens:x11": "node tests/tools/capture-readme-screens-x11.js",
     "open:chatgpt:gpu": "LD_LIBRARY_PATH=\"$PWD/tests/.local-libs/usr/lib/x86_64-linux-gnu\" node tests/tools/open-chatgpt-gpu.js",
     "open:chatgpt:x11-ime": "LD_LIBRARY_PATH=\"$PWD/tests/.local-libs/usr/lib/x86_64-linux-gnu\" node tests/tools/open-chatgpt-x11-ime.js",
     "open:chatgpt:extension-cdp": "node tests/tools/open-chatgpt-extension-cdp.js",

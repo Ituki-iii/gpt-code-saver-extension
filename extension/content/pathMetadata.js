@@ -32,12 +32,32 @@
     return true;
   }
 
+  function cgptIsPathMetadataIgnoredNode(node) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE || typeof node.matches !== "function") {
+      return false;
+    }
+    return node.matches(
+      [
+        "[data-cgpt-code-header='1']",
+        "[data-cgpt-code-label-host='1']",
+        "[data-cgpt-code-actions-host='1']",
+        "[data-cgpt-code-actions='1']",
+        "[data-cgpt-code-file-path='1']",
+        "[data-cgpt-code-collapse-cue='1']",
+        "[data-cgpt-code-collapse-top-cue='1']",
+      ].join(",")
+    );
+  }
+
   function cgptGetPreviousSignificantSibling(startNode, boundaryRoot = null) {
     let current = startNode;
     while (current && current !== boundaryRoot) {
       let previous = current.previousSibling || null;
       while (previous) {
-        if (!cgptIsWhitespaceOnlyNode(previous)) {
+        if (
+          !cgptIsWhitespaceOnlyNode(previous) &&
+          !cgptIsPathMetadataIgnoredNode(previous)
+        ) {
           return previous;
         }
         previous = previous.previousSibling || null;

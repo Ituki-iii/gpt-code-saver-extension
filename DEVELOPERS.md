@@ -206,6 +206,16 @@ Chat Log モーダルは、`file:` 行ありのコードブロックと、通常
 - disabled 状態は `button.disabled = true` を基本にし、見た目だけで表現しない
 - フォーカス、hover、compact 状態の検証が必要なら既存 E2E を追加・更新する
 
+## UI 棚卸しルール
+
+UI 整理の相談、ボタン一覧、ツリー表示、導線見直しを行うときは、実装済み要素と提案要素を混ぜないこと。
+
+- 現状 UI の棚卸しでは、repo 上で確認できる操作要素だけを列挙する。
+- 追加予定のボタンや入力がある場合は、`提案` と明記する。
+- 現状ツリーと整理後ツリーは分けて書く。
+- ユーザーが「知らないボタンがある」と指摘した場合は、提案の正しさではなく棚卸しの正確さに問題がある前提で再確認する。
+- `Chat Log`, `Templates`, `Bulk Chats`, `Quick Settings` のような独立入口を扱うときは、入口とパネル内操作を分けて整理する。
+
 ## テスト
 
 主要なテスト群:
@@ -218,6 +228,8 @@ Chat Log モーダルは、`file:` 行ありのコードブロックと、通常
   - `tests/e2e/ui-screens.spec.js`
 - README workflow regression
   - `tests/e2e/readme-behavior.spec.js`
+- Playwright 実行手順と skip / fail の切り分け
+  - `docs/misc/PLAYWRIGHT_VERIFICATION.md`
 
 よく使うコマンド:
 
@@ -228,6 +240,8 @@ npm run test:e2e
 npm run test:e2e:ui
 npm run test:e2e:live
 ```
+
+Playwright の実行順、`skipped` の切り分け、live / CDP 前提の確認手順は [docs/misc/PLAYWRIGHT_VERIFICATION.md](docs/misc/PLAYWRIGHT_VERIFICATION.md) を参照してください。
 
 ## 開発補助ツール
 
@@ -291,13 +305,14 @@ npm run fetch:share-assets -- https://chatgpt.com/share/your-share-id
 - 権限追加や削除
   - `extension/manifest.json` と README の両方を確認
 - README 画像を更新した場合
+  - まず `npm run capture:readme-screens:x11` で `docs/images/readme/` を更新する
   - `docs/images/readme/` を差し替える
   - 必要なら `tests/e2e/readme-behavior.spec.js` と `tests/e2e/ui-screens.spec.js` の期待を見直す
 
 ## 現在の注意点
 
-- `package.json` の version は `0.4.3` ですが、`extension/manifest.json` は `0.4.0` のままです。
-  - 公開バージョンを揃える運用にするなら、この差分は解消したほうがよいです。
+- `package.json` と `extension/manifest.json` の version はどちらも `0.6.14`。
+  - version を上げるときは片方だけ更新しない。
 - 環境によっては Playwright の persistent context で content script 注入確認が skip になることがあります。
-  - README 画像更新時は、テスト artifact や保存済み DOM の再利用が必要になる場合があります。
+  - README 画像更新時は `tests/e2e/*.spec.js` だけに依存せず、`npm run capture:readme-screens:x11` を使う。
 - Bulk Chats は ChatGPT 左ペイン DOM に依存するため、UI 変更時は `tests/fixtures/chatgpt-sidebar-bulk-mock.html` と関連 e2e を先に確認する。

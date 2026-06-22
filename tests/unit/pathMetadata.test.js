@@ -16,9 +16,13 @@ function createElement(textContent = "") {
   return {
     nodeType: Node.ELEMENT_NODE,
     textContent,
+    dataset: {},
     previousSibling: null,
     parentNode: null,
     parentElement: null,
+    matches() {
+      return false;
+    },
   };
 }
 
@@ -65,6 +69,32 @@ test("cgptResolvePathMetadataForBlock ignores invalid PATH values", () => {
   blockNode.previousSibling = pathNode;
 
   assert.equal(cgptResolvePathMetadataForBlock(blockNode, { boundaryRoot }), null);
+  delete global.cgptValidateFilePath;
+});
+
+test("cgptResolvePathMetadataForBlock skips helper siblings inserted before the code block", () => {
+  global.cgptValidateFilePath = (value) => ({ ok: true, filePath: value.trim() });
+  const boundaryRoot = createElement("");
+  const pathNode = createElement("PATH: src/main.ts");
+  const helperNode = createElement("Save Save As");
+  helperNode.matches = (selector) => selector.includes("[data-cgpt-code-header='1']");
+  const blockNode = createElement("");
+
+  pathNode.parentNode = boundaryRoot;
+  pathNode.parentElement = boundaryRoot;
+  helperNode.parentNode = boundaryRoot;
+  helperNode.parentElement = boundaryRoot;
+  helperNode.previousSibling = pathNode;
+  blockNode.parentNode = boundaryRoot;
+  blockNode.parentElement = boundaryRoot;
+  blockNode.previousSibling = helperNode;
+
+  const resolved = cgptResolvePathMetadataForBlock(blockNode, { boundaryRoot });
+  assert.deepStrictEqual(resolved, {
+    filePath: "src/main.ts",
+    node: pathNode,
+    source: "path-line",
+  });
   delete global.cgptValidateFilePath;
 });
 
