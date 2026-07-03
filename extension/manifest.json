@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Code Saver",
-  "version": "0.6.16",
+  "version": "0.6.17",
   "description": "ChatGPTのコードブロックをローカルの拡張ソースに保存し、複数テンプレートを貼り付け・編集できるヘルパー。",
   "permissions": [
     "downloads",
