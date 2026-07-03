@@ -37,7 +37,7 @@ test('cgptLoadSaveOptions merges values retrieved from chrome.storage.sync', asy
   const { cgptLoadSaveOptions } = loadModule();
   await new Promise((resolve) => {
     cgptLoadSaveOptions((options) => {
-      assert.deepStrictEqual(options, { stripFirstLineMetadata: true });
+      assert.deepStrictEqual(options, {});
       resolve();
     });
   });
@@ -59,12 +59,12 @@ test('cgptUpdateSaveOptions writes to chrome.storage.sync when available', async
   const { cgptUpdateSaveOptions } = loadModule();
   await new Promise((resolve) => {
     cgptUpdateSaveOptions({ stripFirstLineMetadata: true }, (options) => {
-      assert.deepStrictEqual(options, { stripFirstLineMetadata: true });
+      assert.deepStrictEqual(options, {});
       resolve();
     });
   });
   assert.deepStrictEqual(capturedPayload, {
-    cgptSaveOptions: { stripFirstLineMetadata: true },
+    cgptSaveOptions: {},
   });
   delete global.chrome;
 });

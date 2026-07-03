@@ -18,8 +18,8 @@ function buildProbePageHtml() {
       <div data-message-author-role="assistant" data-message-id="probe-assistant-1">
         <h2>Probe Heading</h2>
         <p>Ensure the extension panel and heading folds are injected.</p>
-        <pre><code>// file: src/probe.js
-export const probe = true;</code></pre>
+        <p>PATH: src/probe.js</p>
+        <pre><code>export const probe = true;</code></pre>
         <time datetime="2026-03-03T00:00:05.000Z">2026-03-03 09:00</time>
       </div>
       <textarea data-testid="chat-input" name="prompt-textarea"></textarea>

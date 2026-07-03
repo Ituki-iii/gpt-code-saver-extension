@@ -1,24 +1,44 @@
+function cgptGetResolvedBuiltinTemplates() {
+  if (typeof cgptGetBuiltinTemplates === "function") {
+    return cgptGetBuiltinTemplates();
+  }
+  const id = cgptGenerateTemplateId();
+  const defaultTemplateFactory =
+    typeof cgptCreateDefaultTemplate === "function"
+      ? cgptCreateDefaultTemplate
+      : (templateId) => ({
+          id: templateId,
+          title: "Code output guide (PATH format)",
+          content:
+            typeof cgptGetDefaultTemplateContent === "function"
+              ? cgptGetDefaultTemplateContent()
+              : typeof DEFAULT_TEMPLATE_CONTENT !== "undefined"
+              ? DEFAULT_TEMPLATE_CONTENT
+              : "",
+        });
+  return [defaultTemplateFactory(id)];
+}
+
 function ensureDefaultTemplates() {
   let templates = cgptGetTemplates();
+  const builtinTemplates = cgptGetResolvedBuiltinTemplates();
   if (!Array.isArray(templates) || templates.length === 0) {
-    const id = cgptGenerateTemplateId();
-    const defaultTemplateFactory =
-      typeof cgptCreateDefaultTemplate === "function"
-        ? cgptCreateDefaultTemplate
-        : (templateId) => ({
-            id: templateId,
-            title: "Code output guide (default)",
-            content:
-              typeof cgptGetDefaultTemplateContent === "function"
-                ? cgptGetDefaultTemplateContent()
-                : typeof DEFAULT_TEMPLATE_CONTENT !== "undefined"
-                ? DEFAULT_TEMPLATE_CONTENT
-                : "",
-          });
-    templates = [defaultTemplateFactory(id)];
+    templates = builtinTemplates;
     cgptSetTemplates(templates);
-    cgptSetSelectedTemplateId(id);
-  } else if (!cgptGetSelectedTemplateId()) {
+    if (templates[0] && templates[0].id) {
+      cgptSetSelectedTemplateId(templates[0].id);
+    }
+    return;
+  }
+
+  const existingIds = new Set(templates.map((template) => template && template.id).filter(Boolean));
+  const missingBuiltins = builtinTemplates.filter((template) => !existingIds.has(template.id));
+  if (missingBuiltins.length) {
+    templates = [...templates, ...missingBuiltins];
+    cgptSetTemplates(templates);
+  }
+
+  if (!cgptGetSelectedTemplateId()) {
     cgptSetSelectedTemplateId(templates[0].id);
   }
 }

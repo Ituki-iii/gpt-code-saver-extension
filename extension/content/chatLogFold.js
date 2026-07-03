@@ -44,6 +44,9 @@ function cgptCreateFoldActionButton(label, variant = "secondary") {
   button.textContent = label;
   if (typeof cgptApplySharedButtonStyle === "function") {
     cgptApplySharedButtonStyle(button, { variant: "chip", size: "md", shape: "pill" });
+    if (typeof cgptDisableSharedButtonMotion === "function") {
+      cgptDisableSharedButtonMotion(button);
+    }
   } else {
     button.style.display = "inline-flex";
     button.style.alignItems = "center";
@@ -60,6 +63,9 @@ function cgptCreateFoldActionButton(label, variant = "secondary") {
     button.style.color = "#334155";
   }
   button.style.boxShadow = "none";
+  button.style.transition = "none";
+  button.style.animation = "none";
+  button.style.transform = "none";
   button.style.minWidth = "0";
   return button;
 }
@@ -316,10 +322,8 @@ function ensureChatLogFoldStyle() {
       cursor: pointer;
       gap: 4px;
       min-width: 0;
-      transition: transform 0.1s ease, opacity 0.2s ease;
-    }
-    .cgpt-helper-fold-action-button:hover:not(.cgpt-helper-fold-action-disabled) {
-      transform: translateY(-1px);
+      transition: none;
+      animation: none;
     }
     .cgpt-helper-fold-action-disabled {
       opacity: 0.55;

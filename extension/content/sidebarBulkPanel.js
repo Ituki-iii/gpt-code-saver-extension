@@ -1,6 +1,14 @@
 function cgptCreateSidebarBulkToggleButton() {
   const existing = document.getElementById("cgpt-helper-sidebar-bulk-toggle");
-  if (existing) return existing;
+  if (existing) {
+    if (typeof cgptDisableSharedButtonMotion === "function") {
+      cgptDisableSharedButtonMotion(existing);
+    }
+    existing.style.transition = "none";
+    existing.style.animation = "none";
+    existing.style.transform = "none";
+    return existing;
+  }
   const button =
     typeof cgptCreateSharedChipButton === "function"
       ? cgptCreateSharedChipButton("Bulk Chats", "md")
@@ -13,6 +21,12 @@ function cgptCreateSidebarBulkToggleButton() {
   button.style.zIndex = "9999";
   button.style.minWidth = "88px";
   button.style.padding = "0 14px";
+  if (typeof cgptDisableSharedButtonMotion === "function") {
+    cgptDisableSharedButtonMotion(button);
+  }
+  button.style.transition = "none";
+  button.style.animation = "none";
+  button.style.transform = "none";
   return button;
 }
 

@@ -67,6 +67,9 @@ function cgptCreateChatLogToggleButton() {
       button.style.boxShadow = "0 4px 12px rgba(0,0,0,0.35)";
     }
   }
+  if (typeof cgptDisableSharedButtonMotion === "function") {
+    cgptDisableSharedButtonMotion(button);
+  }
   cgptSyncChatLogToggleState(false, button);
   return cgptEnsureChatLogToggleButtonBinding(button);
 }

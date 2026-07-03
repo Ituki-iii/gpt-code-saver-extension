@@ -103,7 +103,15 @@ function cgptCreatePanelHeader({ onHide }) {
 
 function cgptCreatePanelToggleButton() {
   const existing = document.getElementById("cgpt-helper-panel-toggle");
-  if (existing) return existing;
+  if (existing) {
+    if (typeof cgptDisableSharedButtonMotion === "function") {
+      cgptDisableSharedButtonMotion(existing);
+    }
+    existing.style.transition = "none";
+    existing.style.animation = "none";
+    existing.style.transform = "none";
+    return existing;
+  }
 
   const button =
     typeof cgptCreateSharedChipButton === "function"
@@ -135,6 +143,12 @@ function cgptCreatePanelToggleButton() {
       button.style.boxShadow = "0 4px 12px rgba(0,0,0,0.35)";
     }
   }
+  if (typeof cgptDisableSharedButtonMotion === "function") {
+    cgptDisableSharedButtonMotion(button);
+  }
+  button.style.transition = "none";
+  button.style.animation = "none";
+  button.style.transform = "none";
   return button;
 }
 

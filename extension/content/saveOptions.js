@@ -1,6 +1,4 @@
-const DEFAULT_SAVE_OPTIONS = {
-  stripFirstLineMetadata: false,
-};
+const DEFAULT_SAVE_OPTIONS = {};
 
 let cgptSaveOptions = { ...DEFAULT_SAVE_OPTIONS };
 
@@ -8,16 +6,9 @@ function cgptGetSaveOptions() {
   return { ...cgptSaveOptions };
 }
 
-function cgptShouldStripMetadataLine() {
-  return Boolean(cgptSaveOptions.stripFirstLineMetadata);
-}
-
 function cgptMergeSaveOptions(nextOptions) {
   if (!nextOptions || typeof nextOptions !== "object") {
     return;
-  }
-  if (typeof nextOptions.stripFirstLineMetadata !== "undefined") {
-    cgptSaveOptions.stripFirstLineMetadata = Boolean(nextOptions.stripFirstLineMetadata);
   }
 }
 
@@ -68,7 +59,6 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     DEFAULT_SAVE_OPTIONS,
     cgptGetSaveOptions,
-    cgptShouldStripMetadataLine,
     cgptMergeSaveOptions,
     cgptHasStorageSyncAccess,
     cgptLoadSaveOptions,

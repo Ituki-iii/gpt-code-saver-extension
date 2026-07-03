@@ -16,6 +16,7 @@ async function readScript(relativePath) {
 function buildFixtureHtml() {
   const codeBlocks = Array.from({ length: 20 }, (_, index) => {
     return `
+      <p>PATH: src/demo-${index}.js</p>
       <pre>
         <div class="cgpt-mock-code-shell">
           <div class="cgpt-mock-code-header">
@@ -23,8 +24,7 @@ function buildFixtureHtml() {
             <div class="cgpt-mock-code-actions"><button aria-label="Copy"></button></div>
           </div>
           <div class="cgpt-mock-code-body">
-            <code>// file: src/demo-${index}.js
-export function demo${index}() {
+            <code>export function demo${index}() {
   return ${index};
 }
 </code>
@@ -151,6 +151,7 @@ test("@benchmark code block observer stays responsive under repeated mutations",
 
   const scripts = await Promise.all([
     readScript("extension/shared/uiStyles.js"),
+    readScript("extension/content/pathMetadata.js"),
     readScript("extension/content/codeBlockMetadata.js"),
     readScript("extension/content/codeBlockState.js"),
     readScript("extension/content/codeBlockViewMode.js"),

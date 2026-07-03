@@ -10,7 +10,14 @@ function cgptResolveDefaultTemplateContent() {
 
 function createTemplateEditorButton(label, variant = "secondary") {
   if (typeof cgptCreateSharedButton === "function") {
-    return cgptCreateSharedButton(label, variant, "md");
+    const button = cgptCreateSharedButton(label, variant, "md");
+    if (typeof cgptDisableSharedButtonMotion === "function") {
+      cgptDisableSharedButtonMotion(button);
+    }
+    button.style.transition = "none";
+    button.style.animation = "none";
+    button.style.transform = "none";
+    return button;
   }
   const button = document.createElement("button");
   button.type = "button";
@@ -24,6 +31,9 @@ function createTemplateEditorButton(label, variant = "secondary") {
   if (typeof cgptApplySharedButtonVariant === "function") {
     cgptApplySharedButtonVariant(button, variant);
   }
+  button.style.transition = "none";
+  button.style.animation = "none";
+  button.style.transform = "none";
   return button;
 }
 

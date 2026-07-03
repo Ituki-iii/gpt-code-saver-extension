@@ -156,6 +156,9 @@ function cgptCreateChatLogButton(label, variant = "secondary", size = "md") {
   if (!button.textContent) {
     button.textContent = label;
   }
+  if (typeof cgptDisableSharedButtonMotion === "function") {
+    cgptDisableSharedButtonMotion(button);
+  }
   if (typeof cgptCreateSharedButton !== "function") {
     button.style.fontSize = size === "sm" ? "11px" : "12px";
     button.style.padding = size === "sm" ? "0 8px" : "0 10px";
@@ -178,6 +181,9 @@ function cgptCreateChatLogButton(label, variant = "secondary", size = "md") {
       button.style.color = "#fff";
     }
   }
+  button.style.transition = "none";
+  button.style.animation = "none";
+  button.style.transform = "none";
   return button;
 }
 

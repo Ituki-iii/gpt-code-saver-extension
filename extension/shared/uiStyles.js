@@ -326,12 +326,13 @@ function cgptGetSharedButtonVisualState(button, palette) {
   const boxShadow = isFocused
     ? `${CGPT_BUTTON_BASE_TOKENS.focusInset}, 0 0 0 4px ${palette.focusRing || "#93c5fd"}`
     : "none";
+  const disableMotion = button.dataset.cgptButtonDisableMotion === "1";
   return {
     background,
     border,
     color,
     boxShadow,
-    transform: isPressed ? "translateY(1px)" : "translateY(0)",
+    transform: disableMotion ? "none" : "translateY(0)",
     opacity: "1",
   };
 }
@@ -368,18 +369,21 @@ function cgptRenderSharedButton(button) {
   button.style.gap = CGPT_BUTTON_BASE_TOKENS.gap;
   button.style.boxSizing = "border-box";
   button.style.whiteSpace = "nowrap";
-  button.style.transition = [
-    "background-color 0.15s ease",
-    "border-color 0.15s ease",
-    "color 0.15s ease",
-    "box-shadow 0.15s ease",
-    "transform 0.1s ease",
-    "opacity 0.15s ease",
-  ].join(", ");
+  const disableMotion = button.dataset.cgptButtonDisableMotion === "1";
+  button.style.transition = disableMotion
+    ? "none"
+    : [
+      "background-color 0.15s ease",
+      "border-color 0.15s ease",
+      "color 0.15s ease",
+      "box-shadow 0.15s ease",
+      "opacity 0.15s ease",
+    ].join(", ");
+  button.style.animation = disableMotion ? "none" : "";
   button.style.cursor = button.disabled ? "not-allowed" : "pointer";
   button.style.opacity = visualState.opacity;
   button.style.boxShadow = visualState.boxShadow;
-  button.style.transform = visualState.transform;
+  button.style.transform = disableMotion ? "none" : visualState.transform;
   button.style.outline = "none";
   button.style.textShadow = button.disabled ? "none" : "0 1px 1px rgba(15, 23, 42, 0.28)";
 }
@@ -448,6 +452,12 @@ function cgptSetSharedButtonDisabled(button, disabled) {
 function cgptSetSharedButtonCustomPalette(button, palette) {
   if (!button) return;
   button.__cgptSharedButtonCustomPalette = palette || null;
+  cgptRenderSharedButton(button);
+}
+
+function cgptDisableSharedButtonMotion(button) {
+  if (!button) return;
+  button.dataset.cgptButtonDisableMotion = "1";
   cgptRenderSharedButton(button);
 }
 

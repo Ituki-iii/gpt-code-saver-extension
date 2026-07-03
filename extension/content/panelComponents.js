@@ -113,6 +113,12 @@ function createPanelButton(text, variant = "secondary", size = "sm") {
     button.style.cursor = "pointer";
     applyPanelButtonVariant(button, variant);
   }
+  if (typeof cgptDisableSharedButtonMotion === "function") {
+    cgptDisableSharedButtonMotion(button);
+  }
+  button.style.transition = "none";
+  button.style.animation = "none";
+  button.style.transform = "none";
   button.style.flexShrink = "0";
   return button;
 }

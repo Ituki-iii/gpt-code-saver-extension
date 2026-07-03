@@ -8,37 +8,8 @@ const {
   cgptGetDisplayCodeText,
 } = require('../../extension/content/codeBlockMetadata.js');
 
-test('cgptParseCodeBlockMetadata extracts path and content from // metadata', () => {
-  const code = {
-    innerText: '\ufeff// file: src/app.js\r\nconsole.log("ok");',
-  };
-  const metadata = cgptParseCodeBlockMetadata(code);
-  assert.deepStrictEqual(metadata, {
-    filePath: 'src/app.js',
-    content: 'console.log("ok");',
-    metadataLine: '// file: src/app.js',
-  });
-});
-
-test('cgptParseCodeBlockMetadata accepts # metadata prefix', () => {
-  const code = {
-    innerText: '# file: scripts/task.py\nprint("hello")',
-  };
-  const metadata = cgptParseCodeBlockMetadata(code);
-  assert.deepStrictEqual(metadata, {
-    filePath: 'scripts/task.py',
-    content: 'print("hello")',
-    metadataLine: '# file: scripts/task.py',
-  });
-});
-
-test('cgptParseCodeBlockMetadata returns null when metadata is missing', () => {
-  const metadata = cgptParseCodeBlockMetadata({ innerText: 'console.log("no meta");' });
-  assert.strictEqual(metadata, null);
-});
-
-test('cgptParseCodeBlockMetadata ignores file: lines that are not first', () => {
-  const metadata = cgptParseCodeBlockMetadata({ innerText: 'console.log("before");\n// file: src/late.js\nconsole.log("after");' });
+test('cgptParseCodeBlockMetadata always returns null after file-line metadata removal', () => {
+  const metadata = cgptParseCodeBlockMetadata({ innerText: '// file: src/app.js\nconsole.log("still code");' });
   assert.strictEqual(metadata, null);
 });
 
@@ -47,9 +18,9 @@ test('cgptGetNormalizedCodeText converts CRLF to LF', () => {
   assert.strictEqual(cgptGetNormalizedCodeText(code), 'line1\nline2');
 });
 
-test('cgptGetDisplayCodeText removes the first metadata line from visible code text', () => {
+test('cgptGetDisplayCodeText keeps the full code text', () => {
   const code = { innerText: '// file: src/app.js\nconsole.log("ok");' };
-  assert.strictEqual(cgptGetDisplayCodeText(code), 'console.log("ok");');
+  assert.strictEqual(cgptGetDisplayCodeText(code), '// file: src/app.js\nconsole.log("ok");');
 });
 
 test('cgptGetDisplayCodeText keeps full text when metadata is missing', () => {
@@ -71,7 +42,7 @@ test('cgptGetRawCodeText reads CodeMirror-style content containers', () => {
   );
 });
 
-test('cgptParseCodeBlockMetadata supports CodeMirror-style content containers', () => {
+test('cgptParseCodeBlockMetadata stays disabled for CodeMirror-style content containers', () => {
   const cmContent = {
     innerText: '// file: src/cm.js\nconsole.log("cm");',
   };
@@ -80,11 +51,7 @@ test('cgptParseCodeBlockMetadata supports CodeMirror-style content containers', 
     querySelector: (selector) => (selector === 'code, .cm-content' ? cmContent : null),
   };
   const metadata = cgptParseCodeBlockMetadata(pre);
-  assert.deepStrictEqual(metadata, {
-    filePath: 'src/cm.js',
-    content: 'console.log("cm");',
-    metadataLine: '// file: src/cm.js',
-  });
+  assert.strictEqual(metadata, null);
 });
 
 

@@ -53,6 +53,7 @@
         "content/chatHeadingFold.js",
         "content/chatLogTracker.js",
         "content/chatLogModalActions.js",
+        "content/pathMetadata.js",
         "content/chatLogModalFormatting.js",
         "content/chatLogModal.js",
         "content/panelLayout.js",

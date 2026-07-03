@@ -64,7 +64,6 @@ function createFloatingPanel() {
     panel.appendChild(createExtensionToggleSection());
   }
   panel.appendChild(createProjectFolderSection());
-  panel.appendChild(createSaveOptionsSection());
   panel.appendChild(createLightweightModeSection());
   panel.appendChild(createViewSection());
   panel.appendChild(createLogSection());

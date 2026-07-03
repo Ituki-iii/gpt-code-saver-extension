@@ -3,6 +3,7 @@ const CHAT_LOG_TURN_SELECTOR = "section[data-testid^='conversation-turn-']";
 const chatLogEntries = [];
 const chatLogTrackedIds = new Set();
 const chatLogPendingFoldTimers = new Map();
+const chatLogPendingRenderTimers = new Map();
 let chatLogOrderCounter = 0;
 let chatLogTrackerInitialized = false;
 let chatLogHighlightStyleInjected = false;
@@ -10,6 +11,8 @@ let chatLogTimestampStyleInjected = false;
 const CHAT_LOG_FOLD_DELAY_MS = 120;
 const CHAT_LOG_FOLD_MAX_RETRIES = 8;
 const CHAT_LOG_FOLD_QUIET_PERIOD_MS = 1200;
+const CHAT_LOG_RENDER_RETRY_DELAY_MS = 250;
+const CHAT_LOG_RENDER_MAX_RETRIES = 12;
 const CHAT_LOG_MESSAGE_BADGE_SELECTOR = "[data-cgpt-helper-chat-badge='1']";
 const CHAT_LOG_UPDATED_EVENT = "cgpt-helper-chatlog-updated";
 
@@ -166,10 +169,15 @@ function resetChatLogEntries() {
   chatLogTrackedIds.clear();
   chatLogPendingFoldTimers.forEach((timerId) => clearTimeout(timerId));
   chatLogPendingFoldTimers.clear();
+  chatLogPendingRenderTimers.forEach((timerId) => clearTimeout(timerId));
+  chatLogPendingRenderTimers.clear();
   chatLogOrderCounter = 0;
   if (document && typeof document.querySelectorAll === "function") {
     document.querySelectorAll("[data-cgpt-helper-chat-tracked='1']").forEach((el) => {
       delete el.dataset.cgptHelperChatTracked;
+    });
+    document.querySelectorAll("[data-cgpt-helper-chat-diagnostic='1']").forEach((el) => {
+      el.remove();
     });
   }
   cgptNotifyChatLogUpdated();
@@ -266,7 +274,7 @@ function cgptProcessOrRefreshChatMessageElement(element) {
   processChatMessageElement(host);
 }
 
-function processChatMessageElement(el) {
+function processChatMessageElement(el, renderAttempt = 0) {
   if (!el) return;
   const host = cgptGetChatEntryHost(el);
   if (!host || host.dataset.cgptHelperChatTracked === "1") return;
@@ -275,6 +283,21 @@ function processChatMessageElement(el) {
 
   const role = (roleElement && roleElement.getAttribute("data-message-author-role") || "").toLowerCase();
   if (role !== "user" && role !== "assistant") return;
+  const renderIssue = cgptBuildChatRenderIssue(role, messageElement);
+  if (renderIssue) {
+    if (renderAttempt < CHAT_LOG_RENDER_MAX_RETRIES) {
+      cgptScheduleChatMessageRenderRetry(host, renderAttempt + 1);
+    } else {
+      renderChatMessageDiagnostic(host, roleElement, renderIssue);
+    }
+    return;
+  }
+  const pendingRenderTimer = chatLogPendingRenderTimers.get(host);
+  if (pendingRenderTimer) {
+    clearTimeout(pendingRenderTimer);
+    chatLogPendingRenderTimers.delete(host);
+  }
+  renderChatMessageDiagnostic(host, roleElement, null);
 
   const rawId =
     host.getAttribute("data-testid") ||
@@ -418,6 +441,7 @@ function cgptRefreshTrackedChatMessage(element) {
   if (!entry) return;
   const host = cgptGetChatEntryHost(element) || element;
   const roleElement = cgptGetChatRoleElement(host) || entry.roleElement || host;
+  renderChatMessageDiagnostic(host, roleElement, null);
   const text = extractChatMessageText(roleElement);
   const fallbackText = text.trim() || cgptBuildChatMessageMediaPlaceholder(roleElement);
   if (fallbackText.trim()) {
@@ -504,6 +528,119 @@ function cgptHasStableCodeBlocks(element) {
   return preBlocks.every((pre) => pre.querySelector("code, .cm-content"));
 }
 
+function cgptHasUnrenderedFencedCode(element) {
+  if (!element) return false;
+  const hasRenderedCodeBlock =
+    typeof element.querySelector === "function" && Boolean(element.querySelector("pre code, pre .cm-content"));
+  if (hasRenderedCodeBlock) {
+    return false;
+  }
+  const rawText =
+    typeof element.innerText === "string"
+      ? element.innerText
+      : typeof element.textContent === "string"
+        ? element.textContent
+        : "";
+  if (!rawText) return false;
+  const normalized = rawText.replace(/\r\n/g, "\n");
+  return /(^|\n)```[^\n]*\n/.test(normalized);
+}
+
+function cgptBuildChatRenderIssue(role, messageElement) {
+  if (role !== "assistant" || !cgptHasUnrenderedFencedCode(messageElement)) {
+    return null;
+  }
+  const rawText =
+    typeof messageElement.innerText === "string"
+      ? messageElement.innerText
+      : typeof messageElement.textContent === "string"
+        ? messageElement.textContent
+        : "";
+  return {
+    code: "assistant-raw-fence",
+    message:
+      "Helper deferred decorations because the assistant message still contains raw fenced code.",
+    sample: cgptNormalizePlainText(rawText).slice(0, 240),
+  };
+}
+
+function cgptGetChatDiagnosticContainer(host, roleElement) {
+  if (host && roleElement && host !== roleElement) {
+    return host;
+  }
+  if (roleElement && roleElement.parentElement) {
+    return roleElement.parentElement;
+  }
+  return host || roleElement || null;
+}
+
+function cgptLogChatRenderIssue(host, issue) {
+  if (!host || !issue || host.dataset.cgptHelperChatDiagnosticLogged === issue.code) {
+    return;
+  }
+  host.dataset.cgptHelperChatDiagnosticLogged = issue.code;
+  try {
+    console.error("[ChatGPT Code Saver]", issue.message, {
+      code: issue.code,
+      messageId:
+        host.getAttribute("data-message-id") ||
+        host.getAttribute("data-testid") ||
+        "",
+      sample: issue.sample || "",
+    });
+  } catch (_error) {
+    // noop
+  }
+}
+
+function renderChatMessageDiagnostic(host, roleElement, issue) {
+  const container = cgptGetChatDiagnosticContainer(host, roleElement);
+  if (!container || typeof container.querySelector !== "function") return;
+  let diagnostic = container.querySelector(":scope > [data-cgpt-helper-chat-diagnostic='1']");
+  if (!issue) {
+    if (diagnostic) {
+      diagnostic.remove();
+    }
+    if (host && host.dataset) {
+      delete host.dataset.cgptHelperChatDiagnosticLogged;
+    }
+    return;
+  }
+  if (!diagnostic) {
+    diagnostic = document.createElement("div");
+    diagnostic.dataset.cgptHelperChatDiagnostic = "1";
+    diagnostic.className = "cgpt-helper-chat-diagnostic";
+    diagnostic.style.margin = "0 0 6px 0";
+    diagnostic.style.padding = "8px 10px";
+    diagnostic.style.borderRadius = "10px";
+    diagnostic.style.border = "1px solid rgba(239, 68, 68, 0.28)";
+    diagnostic.style.background = "rgba(127, 29, 29, 0.08)";
+    diagnostic.style.color = "#991b1b";
+    diagnostic.style.fontSize = "12px";
+    diagnostic.style.lineHeight = "1.45";
+    diagnostic.style.whiteSpace = "pre-wrap";
+    container.insertBefore(diagnostic, container.firstChild);
+  }
+  diagnostic.dataset.cgptHelperChatDiagnosticCode = issue.code || "";
+  diagnostic.textContent =
+    "Rendering error: assistant message still has raw ``` fences, so helper decorations were skipped.";
+  diagnostic.title = issue.sample || issue.message || "";
+  cgptLogChatRenderIssue(host || container, issue);
+}
+
+function cgptScheduleChatMessageRenderRetry(host, attempt = 1) {
+  if (!host) return;
+  const existingTimer = chatLogPendingRenderTimers.get(host);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+  const timerId = setTimeout(() => {
+    chatLogPendingRenderTimers.delete(host);
+    processChatMessageElement(host, attempt);
+  }, CHAT_LOG_RENDER_RETRY_DELAY_MS);
+  chatLogPendingRenderTimers.set(host, timerId);
+}
+
 function cgptShouldDelayChatMessageFolding(
   lastMutationAt,
   now = Date.now(),
@@ -530,6 +667,12 @@ function cgptScheduleChatMessageFolding(entry, attempt = 0) {
       return;
     }
     if (!cgptHasStableCodeBlocks(entry.element)) {
+      if (attempt < CHAT_LOG_FOLD_MAX_RETRIES) {
+        cgptScheduleChatMessageFolding(entry, attempt + 1);
+      }
+      return;
+    }
+    if (entry.role === "assistant" && cgptHasUnrenderedFencedCode(entry.element)) {
       if (attempt < CHAT_LOG_FOLD_MAX_RETRIES) {
         cgptScheduleChatMessageFolding(entry, attempt + 1);
       }
@@ -713,6 +856,9 @@ if (typeof module !== "undefined" && module.exports) {
     cgptResolveChatEntryOrder,
     cgptGetChatEntryHost,
     cgptGetChatRoleElement,
+    cgptHasStableCodeBlocks,
+    cgptHasUnrenderedFencedCode,
+    cgptBuildChatRenderIssue,
     cgptBuildChatMessageMediaPlaceholder,
     cgptExtractChatMessageTextFromNode,
     cgptIsVisibleChatMessageRegion,

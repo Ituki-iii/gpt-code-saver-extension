@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Control"
+  short_description: "Operate Codex config and control surfaces"
+  default_prompt: "Use $codex-control to choose the right Codex control surface and safely update configuration."

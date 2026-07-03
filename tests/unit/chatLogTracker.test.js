@@ -41,6 +41,72 @@ test("cgptShouldDelayChatMessageFolding waits for the quiet period to elapse", (
   resetGlobals();
 });
 
+test("cgptHasUnrenderedFencedCode detects assistant text that still contains raw fenced code", () => {
+  const { cgptHasUnrenderedFencedCode } = loadModule();
+  const element = {
+    querySelector() {
+      return null;
+    },
+    innerText: [
+      "了解です。",
+      "",
+      "PATH: src/main.ts",
+      "```ts",
+      "console.log('main');",
+      "```",
+    ].join("\n"),
+  };
+
+  assert.equal(cgptHasUnrenderedFencedCode(element), true);
+  resetGlobals();
+});
+
+test("cgptHasUnrenderedFencedCode ignores messages whose fenced code is already rendered as pre/code", () => {
+  const { cgptHasUnrenderedFencedCode } = loadModule();
+  const renderedPre = {};
+  const element = {
+    querySelector(selector) {
+      return selector === "pre code, pre .cm-content" ? renderedPre : null;
+    },
+    innerText: [
+      "了解です。",
+      "",
+      "PATH: src/main.ts",
+      "```ts",
+      "console.log('main');",
+      "```",
+    ].join("\n"),
+  };
+
+  assert.equal(cgptHasUnrenderedFencedCode(element), false);
+  resetGlobals();
+});
+
+test("cgptBuildChatRenderIssue reports raw fenced assistant output before helper decorations run", () => {
+  const { cgptBuildChatRenderIssue } = loadModule();
+  const issue = cgptBuildChatRenderIssue("assistant", {
+    querySelector() {
+      return null;
+    },
+    innerText: [
+      "了解です。",
+      "",
+      "PATH: src/main.ts",
+      "```ts",
+      "console.log('main');",
+      "```",
+    ].join("\n"),
+  });
+
+  assert.deepEqual(issue, {
+    code: "assistant-raw-fence",
+    message:
+      "Helper deferred decorations because the assistant message still contains raw fenced code.",
+    sample: "了解です。\n\nPATH: src/main.ts\n```ts\nconsole.log('main');\n```",
+  });
+  resetGlobals();
+});
+
 test("cgptIsHelperManagedNode detects helper UI nodes", () => {
   global.Node = { ELEMENT_NODE: 1 };
   const { cgptIsHelperManagedNode } = loadModule();

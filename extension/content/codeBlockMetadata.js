@@ -49,19 +49,8 @@ function cgptGetRawCodeText(element) {
   return cgptReadCodeTextWithoutHelperNodes(textContainer);
 }
 
-function cgptParseCodeBlockMetadata(code) {
-  if (!code) return null;
-  const normalized = cgptGetRawCodeText(code).replace(/^\ufeff/, "").replace(/\r\n/g, "\n");
-  const { firstLineRaw, remainingText } = cgptExtractFirstLine(normalized);
-  const match =
-    firstLineRaw.trim().match(/^\/\/\s*file:\s*(.+)$/i) ||
-    firstLineRaw.trim().match(/^#\s*file:\s*(.+)$/i);
-  if (!match) return null;
-
-  const filePath = match[1].trim();
-  if (!filePath) return null;
-
-  return { filePath, content: remainingText, metadataLine: firstLineRaw };
+function cgptParseCodeBlockMetadata(_code) {
+  return null;
 }
 
 function cgptExtractFirstLine(text) {
@@ -78,11 +67,6 @@ function cgptGetNormalizedCodeText(code) {
 }
 
 function cgptGetDisplayCodeText(code) {
-  if (!code) return "";
-  const metadata = cgptParseCodeBlockMetadata(code);
-  if (metadata && typeof metadata.content === "string") {
-    return metadata.content;
-  }
   return cgptGetNormalizedCodeText(code);
 }
 

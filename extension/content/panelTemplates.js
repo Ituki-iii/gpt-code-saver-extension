@@ -1,6 +1,19 @@
+function cgptDisableTemplateControlMotion(element) {
+  if (!element || !element.style) return element;
+  if (typeof cgptDisableSharedButtonMotion === "function" && element.tagName === "BUTTON") {
+    cgptDisableSharedButtonMotion(element);
+  }
+  element.style.transition = "none";
+  element.style.animation = "none";
+  if (element.tagName === "BUTTON") {
+    element.style.transform = "none";
+  }
+  return element;
+}
+
 function cgptCreateTemplateToggleButton() {
   const existing = document.getElementById("cgpt-helper-template-toggle");
-  if (existing) return existing;
+  if (existing) return cgptDisableTemplateControlMotion(existing);
 
   const button =
     typeof cgptCreateSharedChipButton === "function"
@@ -32,7 +45,7 @@ function cgptCreateTemplateToggleButton() {
       button.style.boxShadow = "0 4px 12px rgba(0,0,0,0.35)";
     }
   }
-  return button;
+  return cgptDisableTemplateControlMotion(button);
 }
 
 function openTemplatePanel() {
@@ -84,6 +97,7 @@ function openTemplatePanel() {
   const closeButton = createPanelButton("Hide", "ghost");
   closeButton.style.padding = "2px 6px";
   closeButton.style.lineHeight = "1.3";
+  cgptDisableTemplateControlMotion(closeButton);
   closeButton.addEventListener("click", () => {
     panel.style.display = "none";
     cgptSyncTemplateToggleState(false);
@@ -134,7 +148,8 @@ function createTemplatePanelContent() {
   templateDropdownContainer.style.display = "flex";
   templateDropdownContainer.style.alignItems = "center";
   templateDropdownContainer.style.borderRadius = "8px";
-  templateDropdownContainer.style.transition = "border-color 0.15s ease, background 0.15s ease";
+  templateDropdownContainer.style.transition = "none";
+  templateDropdownContainer.style.animation = "none";
   if (typeof cgptApplySurfaceStyle === "function") {
     cgptApplySurfaceStyle(templateDropdownContainer, "subtle");
   } else {
@@ -160,6 +175,8 @@ function createTemplatePanelContent() {
   templateDropdown.style.fontSize = "12px";
   templateDropdown.style.height = "28px";
   templateDropdown.style.cursor = "pointer";
+  templateDropdown.style.transition = "none";
+  templateDropdown.style.animation = "none";
   templateDropdown.setAttribute("aria-label", "Select template");
   templateDropdownContainer.appendChild(templateDropdown);
 
@@ -220,6 +237,7 @@ function createTemplateActionRow(refreshTemplateList) {
 
   const editBtn = createPanelButton("Edit", "secondary");
   editBtn.style.flex = "1";
+  cgptDisableTemplateControlMotion(editBtn);
   editBtn.addEventListener("click", () => {
     const tpl = getSelectedTemplate();
     if (!tpl) {
@@ -234,6 +252,7 @@ function createTemplateActionRow(refreshTemplateList) {
 
   const addBtn = createPanelButton("Add", "secondary");
   addBtn.style.flex = "1";
+  cgptDisableTemplateControlMotion(addBtn);
   addBtn.addEventListener("click", () => {
     openTemplateEditor("new", null, () => {
       refreshTemplateList();
@@ -243,6 +262,7 @@ function createTemplateActionRow(refreshTemplateList) {
 
   const insertBtn = createPanelButton("Insert", "primary");
   insertBtn.style.flex = "1";
+  cgptDisableTemplateControlMotion(insertBtn);
   insertBtn.addEventListener("click", () => {
     const tpl = getSelectedTemplate();
     if (!tpl) {

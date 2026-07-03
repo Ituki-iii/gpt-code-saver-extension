@@ -62,13 +62,6 @@ function cgptEnsureCodeBlockStyles() {
   z-index: 1;
 }
 .${CGPT_CODE_WRAPPER_CLASS} [data-cgpt-code-actions="1"] {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition: opacity 0.15s ease, visibility 0.15s ease;
-}
-.${CGPT_CODE_WRAPPER_CLASS}:hover [data-cgpt-code-actions="1"],
-.${CGPT_CODE_WRAPPER_CLASS}:focus-within [data-cgpt-code-actions="1"] {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;
@@ -448,14 +441,14 @@ function cgptSetPreViewMode(pre, mode) {
   cgptRememberOriginalCompactHostStyles(host);
   const state =
     typeof cgptGetCodeBlockState === "function" ? cgptGetCodeBlockState(pre) : null;
-  const metadata = state ? state.metadata || null : null;
+  const pathInfo = state ? state.pathInfo || null : null;
   if (mode === CGPT_VIEW_MODE.EXPANDED) {
     collapsibleEl.style.maxHeight = pre.dataset.cgptOriginalMaxHeight || "";
     collapsibleEl.style.overflow = pre.dataset.cgptOriginalOverflow || "";
     cgptRestoreCompactHostStyles(host);
     cgptRestoreCueHostStyles(cgptGetCompactCueHost(pre));
     if (typeof cgptSyncCompactHeaderPath === "function") {
-      cgptSyncCompactHeaderPath(pre, metadata, mode);
+      cgptSyncCompactHeaderPath(pre, pathInfo, mode);
     }
     cgptSetCollapsedVisualState(collapsibleEl, false);
   } else {
@@ -476,7 +469,7 @@ function cgptSetPreViewMode(pre, mode) {
     collapsibleEl.style.maxHeight = "";
     collapsibleEl.style.overflow = "visible";
     if (typeof cgptSyncCompactHeaderPath === "function") {
-      cgptSyncCompactHeaderPath(pre, metadata, mode);
+      cgptSyncCompactHeaderPath(pre, pathInfo, mode);
     }
     cgptSetCollapsedVisualState(collapsibleEl, true);
   }

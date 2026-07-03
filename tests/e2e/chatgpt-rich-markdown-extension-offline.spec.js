@@ -109,8 +109,8 @@ console.log(total);</code></pre>
         <li>番号付き 2</li>
       </ol>
       <h3>Code</h3>
-      <pre><code>// file: src/demo.js
-export function sum(a, b) {
+      <p>PATH: src/demo.js</p>
+      <pre><code>export function sum(a, b) {
   return a + b;
 }</code></pre>
       <h3>Notes</h3>
@@ -145,7 +145,7 @@ export function sum(a, b) {
       horizontalRuleCount: 0,
       linkCount: 1,
       checkboxCount: 0,
-      paragraphCount: 2,
+      paragraphCount: 3,
     },
     toggleLevels: [1, 2, 3],
   },
