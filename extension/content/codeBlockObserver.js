@@ -1,4 +1,25 @@
 let cgptCodeBlockObserver = null;
+let cgptPendingCodeBlockRoots = null;
+let cgptPendingCodeBlockFlushTimer = null;
+
+function cgptGetCodeBlockPerfMetricsBucket() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  if (!window.__cgptPerfMetrics || typeof window.__cgptPerfMetrics !== "object") {
+    window.__cgptPerfMetrics = {};
+  }
+  if (!window.__cgptPerfMetrics.codeBlocks || typeof window.__cgptPerfMetrics.codeBlocks !== "object") {
+    window.__cgptPerfMetrics.codeBlocks = {};
+  }
+  return window.__cgptPerfMetrics.codeBlocks;
+}
+
+function cgptIncrementCodeBlockPerfMetric(name, amount = 1) {
+  const metrics = cgptGetCodeBlockPerfMetricsBucket();
+  if (!metrics || !name) return;
+  metrics[name] = (Number(metrics[name]) || 0) + (Number(amount) || 0);
+}
 
 function cgptIsHelperOwnedNode(node) {
   if (!node) return false;
@@ -46,38 +67,86 @@ function cgptCanContainCodeBlocks(node) {
   );
 }
 
+function cgptResolveCodeBlockMutationRoot(node) {
+  if (!node) return null;
+  if (node.nodeType === Node.TEXT_NODE) {
+    return node;
+  }
+  if (
+    node.nodeType !== Node.ELEMENT_NODE &&
+    node.nodeType !== Node.DOCUMENT_NODE &&
+    node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE
+  ) {
+    return null;
+  }
+  if (!cgptCanContainCodeBlocks(node)) {
+    return null;
+  }
+  return node;
+}
+
+function cgptFlushPendingCodeBlockRoots() {
+  if (cgptPendingCodeBlockFlushTimer) {
+    clearTimeout(cgptPendingCodeBlockFlushTimer);
+    cgptPendingCodeBlockFlushTimer = null;
+  }
+  if (!cgptPendingCodeBlockRoots || cgptPendingCodeBlockRoots.size === 0) {
+    return;
+  }
+  const pendingRoots = Array.from(cgptPendingCodeBlockRoots);
+  cgptPendingCodeBlockRoots.clear();
+  cgptIncrementCodeBlockPerfMetric("mutationRootFlushes");
+
+  pendingRoots.forEach((root) => {
+    if (!root) return;
+    if (root.nodeType === Node.TEXT_NODE) {
+      tryDecorateFromTextNode(root);
+      return;
+    }
+    decorateCodeBlocks(root);
+  });
+
+  if (typeof cgptSchedulePanelLayoutRefresh === "function") {
+    cgptSchedulePanelLayoutRefresh();
+  }
+}
+
+function cgptScheduleCodeBlockMutationRoot(root) {
+  if (!root) return;
+  if (!cgptPendingCodeBlockRoots) {
+    cgptPendingCodeBlockRoots = new Set();
+  }
+  cgptPendingCodeBlockRoots.add(root);
+  cgptIncrementCodeBlockPerfMetric("scheduledMutationRoots");
+  if (cgptPendingCodeBlockFlushTimer) {
+    return;
+  }
+  cgptPendingCodeBlockFlushTimer = setTimeout(() => {
+    cgptFlushPendingCodeBlockRoots();
+  }, 0);
+}
+
 function setupCodeBlockMutationObserver() {
   if (cgptCodeBlockObserver) return cgptCodeBlockObserver;
   const observer = new MutationObserver((mutations) => {
-    let shouldRefreshPanelLayout = false;
+    cgptIncrementCodeBlockPerfMetric("mutationBatches");
     for (const mutation of mutations) {
       if (cgptIsHelperOwnedNode(mutation.target)) {
         continue;
       }
+      const targetRoot = cgptResolveCodeBlockMutationRoot(mutation.target);
+      if (targetRoot) {
+        cgptScheduleCodeBlockMutationRoot(targetRoot);
+      }
       if (mutation.type === "childList" && mutation.addedNodes && mutation.addedNodes.length > 0) {
         const addedNodes = Array.from(mutation.addedNodes).filter((node) => !cgptIsHelperOwnedNode(node));
-        if (addedNodes.length === 0) {
-          continue;
-        }
         addedNodes.forEach((node) => {
-          if (!cgptCanContainCodeBlocks(node)) {
-            return;
-          }
-          shouldRefreshPanelLayout = true;
-          if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.DOCUMENT_NODE) {
-            decorateCodeBlocks(node);
-          } else if (node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
-            decorateCodeBlocks(node);
-          } else if (node.nodeType === Node.TEXT_NODE) {
-            tryDecorateFromTextNode(node);
+          const root = cgptResolveCodeBlockMutationRoot(node);
+          if (root) {
+            cgptScheduleCodeBlockMutationRoot(root);
           }
         });
-      } else if (mutation.type === "characterData") {
-        tryDecorateFromTextNode(mutation.target);
       }
-    }
-    if (shouldRefreshPanelLayout && typeof cgptSchedulePanelLayoutRefresh === "function") {
-      cgptSchedulePanelLayoutRefresh();
     }
   });
   observer.observe(document.body, {
@@ -97,5 +166,6 @@ if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     cgptIsHelperOwnedNode,
     cgptCanContainCodeBlocks,
+    cgptResolveCodeBlockMutationRoot,
   };
 }

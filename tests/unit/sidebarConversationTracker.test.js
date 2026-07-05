@@ -21,6 +21,13 @@ function cleanupWindowStub() {
   delete global.window;
 }
 
+function cleanupTrackerGlobals() {
+  delete global.Node;
+  delete global.document;
+  delete global.setTimeout;
+  delete global.clearTimeout;
+}
+
 function createAnchor({ href, title, projectItem = false, active = false }) {
   const row = {
     dataset: {
@@ -506,4 +513,47 @@ test("cgptCollectSidebarProjects excludes the create-project entry", () => {
   const projects = cgptCollectSidebarProjects(root);
   assert.equal(projects.length, 1);
   assert.equal(projects[0].name, "PC管理");
+});
+
+test("cgptResolveSidebarMutationRoot prefers the enclosing sidebar root", () => {
+  global.Node = { ELEMENT_NODE: 1, TEXT_NODE: 3 };
+  const sidebarRoot = {
+    dataset: { cgptSidebarRoot: "1" },
+  };
+  const parent = {
+    closest(selector) {
+      return selector.includes("[data-cgpt-sidebar-root='1']") ? sidebarRoot : null;
+    },
+  };
+  const { cgptResolveSidebarMutationRoot } = loadModule();
+
+  const resolved = cgptResolveSidebarMutationRoot({
+    nodeType: 3,
+    parentElement: parent,
+  });
+
+  assert.equal(resolved, sidebarRoot);
+  cleanupTrackerGlobals();
+});
+
+test("cgptHandleSidebarConversationRouteChange refreshes only when the route key changes", () => {
+  installWindowStub("https://chatgpt.com/c/alpha");
+  global.document = {
+    body: null,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+  };
+  global.setTimeout = (callback) => {
+    callback();
+    return 1;
+  };
+  global.clearTimeout = () => {};
+
+  const { cgptHandleSidebarConversationRouteChange } = loadModule();
+
+  assert.equal(cgptHandleSidebarConversationRouteChange(global.document), true);
+  assert.equal(cgptHandleSidebarConversationRouteChange(global.document), false);
+
+  cleanupTrackerGlobals();
+  cleanupWindowStub();
 });

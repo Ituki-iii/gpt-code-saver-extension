@@ -1,5 +1,15 @@
 function decorateCodeBlocks(root = document) {
   if (!root || typeof root.querySelectorAll !== "function") return;
+  if (typeof window !== "undefined") {
+    if (!window.__cgptPerfMetrics || typeof window.__cgptPerfMetrics !== "object") {
+      window.__cgptPerfMetrics = {};
+    }
+    if (!window.__cgptPerfMetrics.codeBlocks || typeof window.__cgptPerfMetrics.codeBlocks !== "object") {
+      window.__cgptPerfMetrics.codeBlocks = {};
+    }
+    window.__cgptPerfMetrics.codeBlocks.decorateCalls =
+      (Number(window.__cgptPerfMetrics.codeBlocks.decorateCalls) || 0) + 1;
+  }
   cgptEnsureCodeBlockStyles();
   const pres = cgptCollectDecoratablePres(root);
   pres.forEach((pre) => {

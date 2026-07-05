@@ -1,33 +1,18 @@
 (function initCgptDefaultTemplate(root) {
   const CGPT_BUILTIN_TEMPLATES = [
     {
-      id: "builtin:path-default",
-      title: "Code output guide (PATH format)",
-      content: `// 出力ルール
-// - コードブロックの中に file path を書かないでください。
-// - 各コードブロックの直前に "PATH: src/app.js" の形式で相対パスを 1 行だけ書いてください。
-// - PATH 行とコードブロックの間に説明文を挟まないでください。
-// - 各コードブロックは 1 ファイルのみを表し、単一責務になるよう小さく保ってください。
-// 品質チェック
-// - 可能であれば npm run lint / npm test などの構文・動作チェックを実行し、結果を報告してください。
-// - 実行できない場合は理由を明記し、代替として静的な検証(型チェック・自己レビュー)を行ってください。
-// 例
-// PATH: src/app.js
-// \`\`\`js
-// console.log("hello");
-// \`\`\`
-`,
-    },
-    {
-      id: "builtin:path-multi-file",
-      title: "Multi-file output guide (strict PATH format)",
-      content: `複数ファイルを出力するときは次の形式を厳守してください。
+      id: "builtin:path-format",
+      title: "PATH format",
+      content: `コードを出力するときは次の形式を守ってください。
 
 - コードブロックの中に file path を書かない
 - 各コードブロックの直前に \`PATH: relative/path\` を 1 行だけ書く
 - 1 つの PATH に対してコードブロックは 1 つ
 - PATH 行とコードブロックの間に説明文を入れない
+- 各コードブロックは 1 ファイルのみを表し、単一責務になるよう小さく保つ
 - 余計な説明はファイル列挙の前後にまとめる
+- 可能であれば \`npm run lint\` / \`npm test\` などを実行し、結果を報告する
+- 実行できない場合は理由を明記し、代替として静的な検証を行う
 
 例:
 

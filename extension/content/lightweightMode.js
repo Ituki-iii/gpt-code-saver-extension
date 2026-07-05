@@ -1,8 +1,10 @@
 const CGPT_LIGHTWEIGHT_CLASS = "cgpt-lightweight";
-const CGPT_LIGHTWEIGHT_POLL_INTERVAL = 500;
+const CGPT_LIGHTWEIGHT_POLL_INTERVAL = 2000;
 let cgptLightweightStyleInjected = false;
 let cgptLastIsGenerating = null;
 let cgptLightweightInterval = null;
+let cgptLightweightObserver = null;
+let cgptLightweightSyncTimer = null;
 
 function cgptEnsureLightweightStyles() {
   if (cgptLightweightStyleInjected) return;
@@ -66,7 +68,34 @@ function cgptToggleLightweightMode(isEnabled) {
   }
 }
 
+function cgptSyncAutoLightweightMode() {
+  const nowGenerating = cgptIsChatGenerating();
+  if (nowGenerating === cgptLastIsGenerating) {
+    return;
+  }
+  cgptLastIsGenerating = nowGenerating;
+  cgptToggleLightweightMode(Boolean(nowGenerating));
+}
+
+function cgptScheduleAutoLightweightSync() {
+  if (cgptLightweightSyncTimer) {
+    return;
+  }
+  cgptLightweightSyncTimer = setTimeout(() => {
+    cgptLightweightSyncTimer = null;
+    cgptSyncAutoLightweightMode();
+  }, 0);
+}
+
 function cgptStopLightweightPolling() {
+  if (cgptLightweightSyncTimer) {
+    clearTimeout(cgptLightweightSyncTimer);
+    cgptLightweightSyncTimer = null;
+  }
+  if (cgptLightweightObserver) {
+    cgptLightweightObserver.disconnect();
+    cgptLightweightObserver = null;
+  }
   if (cgptLightweightInterval) {
     clearInterval(cgptLightweightInterval);
     cgptLightweightInterval = null;
@@ -75,17 +104,24 @@ function cgptStopLightweightPolling() {
 }
 
 function cgptStartLightweightPolling() {
-  if (cgptLightweightInterval) return;
+  if (cgptLightweightInterval || cgptLightweightObserver) return;
   const initialGenerating = cgptIsChatGenerating();
   cgptLastIsGenerating = initialGenerating;
   cgptToggleLightweightMode(Boolean(initialGenerating));
+  if (typeof MutationObserver === "function" && document && document.body) {
+    cgptLightweightObserver = new MutationObserver(() => {
+      cgptScheduleAutoLightweightSync();
+    });
+    cgptLightweightObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["aria-label"],
+    });
+    return;
+  }
   cgptLightweightInterval = setInterval(() => {
-    const nowGenerating = cgptIsChatGenerating();
-    if (nowGenerating === cgptLastIsGenerating) {
-      return;
-    }
-    cgptLastIsGenerating = nowGenerating;
-    cgptToggleLightweightMode(Boolean(nowGenerating));
+    cgptSyncAutoLightweightMode();
   }, CGPT_LIGHTWEIGHT_POLL_INTERVAL);
 }
 

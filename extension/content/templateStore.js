@@ -8,7 +8,7 @@ function cgptGetResolvedBuiltinTemplates() {
       ? cgptCreateDefaultTemplate
       : (templateId) => ({
           id: templateId,
-          title: "Code output guide (PATH format)",
+          title: "PATH format",
           content:
             typeof cgptGetDefaultTemplateContent === "function"
               ? cgptGetDefaultTemplateContent()
@@ -22,6 +22,13 @@ function cgptGetResolvedBuiltinTemplates() {
 function ensureDefaultTemplates() {
   let templates = cgptGetTemplates();
   const builtinTemplates = cgptGetResolvedBuiltinTemplates();
+  const builtinIds = new Set(
+    builtinTemplates.map((template) => template && template.id).filter(Boolean)
+  );
+  const legacyBuiltinIds = new Set([
+    "builtin:path-default",
+    "builtin:path-multi-file",
+  ]);
   if (!Array.isArray(templates) || templates.length === 0) {
     templates = builtinTemplates;
     cgptSetTemplates(templates);
@@ -31,14 +38,28 @@ function ensureDefaultTemplates() {
     return;
   }
 
+  const hadLegacyBuiltins = templates.some(
+    (template) => template && legacyBuiltinIds.has(template.id)
+  );
+  if (hadLegacyBuiltins) {
+    templates = templates.filter(
+      (template) => !template || !legacyBuiltinIds.has(template.id)
+    );
+  }
+
   const existingIds = new Set(templates.map((template) => template && template.id).filter(Boolean));
-  const missingBuiltins = builtinTemplates.filter((template) => !existingIds.has(template.id));
+  const missingBuiltins = builtinTemplates.filter(
+    (template) => template && builtinIds.has(template.id) && !existingIds.has(template.id)
+  );
   if (missingBuiltins.length) {
     templates = [...templates, ...missingBuiltins];
     cgptSetTemplates(templates);
+  } else if (hadLegacyBuiltins) {
+    cgptSetTemplates(templates);
   }
 
-  if (!cgptGetSelectedTemplateId()) {
+  const selectedTemplateId = cgptGetSelectedTemplateId();
+  if (!selectedTemplateId || legacyBuiltinIds.has(selectedTemplateId)) {
     cgptSetSelectedTemplateId(templates[0].id);
   }
 }

@@ -18,6 +18,9 @@ let cgptSidebarConversationRouteWatcher = null;
 let cgptSidebarConversationRouteKey = "";
 let cgptSidebarProjectIframeSweepPromise = null;
 let cgptSidebarConversationSnapshotCache = new Map();
+let cgptSidebarConversationRouteListenerBound = false;
+let cgptSidebarPendingRefreshForce = false;
+let cgptSidebarPendingRefreshReason = "";
 
 const CGPT_SIDEBAR_PROJECT_SECTION_LABELS = [
   "projects",
@@ -37,6 +40,46 @@ const CGPT_SIDEBAR_PROJECT_CREATE_LABELS = [
 const CGPT_SIDEBAR_PROJECT_SWEEP_STEPS = 16;
 const CGPT_SIDEBAR_PROJECT_SWEEP_DELAY_MS = 80;
 const CGPT_SIDEBAR_PROJECT_IFRAME_TIMEOUT_MS = 2500;
+const CGPT_SIDEBAR_ROUTE_CHANGE_EVENT = "cgpt-helper-sidebar-route-change";
+const CGPT_SIDEBAR_ROUTE_FALLBACK_INTERVAL_MS = 2000;
+const CGPT_SIDEBAR_MUTATION_RELEVANT_SELECTOR = [
+  "a[href*='/c/']",
+  "a[href*='/g/'][href*='/project']",
+  "[data-cgpt-project='1']",
+  "[data-cgpt-project-option='1']",
+  "[data-cgpt-project-list='1']",
+  "[data-cgpt-project-name]",
+  "[data-cgpt-section-label]",
+  "[data-testid*='sidebar']",
+].join(", ");
+const CGPT_SIDEBAR_MUTATION_ROOT_SELECTOR = [
+  "[data-cgpt-sidebar-root='1']",
+  "aside",
+  "nav",
+  "[role='navigation']",
+  "[data-testid*='sidebar']",
+  "[class*='sidebar']",
+  "[id*='sidebar']",
+].join(", ");
+
+function cgptGetSidebarPerfMetricsBucket() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  if (!window.__cgptPerfMetrics || typeof window.__cgptPerfMetrics !== "object") {
+    window.__cgptPerfMetrics = {};
+  }
+  if (!window.__cgptPerfMetrics.sidebar || typeof window.__cgptPerfMetrics.sidebar !== "object") {
+    window.__cgptPerfMetrics.sidebar = {};
+  }
+  return window.__cgptPerfMetrics.sidebar;
+}
+
+function cgptIncrementSidebarPerfMetric(name, amount = 1) {
+  const metrics = cgptGetSidebarPerfMetricsBucket();
+  if (!metrics || !name) return;
+  metrics[name] = (Number(metrics[name]) || 0) + (Number(amount) || 0);
+}
 
 function cgptIsSidebarBulkHelperNode(node) {
   if (!node || node.nodeType !== 1) return false;
@@ -130,6 +173,98 @@ function cgptGetSidebarProjectRouteSlug(project = {}) {
 function cgptGetSidebarConversationRouteKey() {
   if (!window || !window.location) return "";
   return `${window.location.pathname || ""}${window.location.search || ""}`;
+}
+
+function cgptCanMutationAffectSidebarSnapshot(element) {
+  if (!element || cgptIsSidebarBulkHelperNode(element)) {
+    return false;
+  }
+  if (typeof element.closest === "function") {
+    const sidebarRoot = element.closest(CGPT_SIDEBAR_MUTATION_ROOT_SELECTOR);
+    if (sidebarRoot) {
+      return true;
+    }
+  }
+  if (typeof element.matches === "function" && element.matches(CGPT_SIDEBAR_MUTATION_RELEVANT_SELECTOR)) {
+    return true;
+  }
+  return Boolean(
+    typeof element.querySelector === "function" &&
+      element.querySelector(CGPT_SIDEBAR_MUTATION_RELEVANT_SELECTOR)
+  );
+}
+
+function cgptResolveSidebarMutationRoot(node) {
+  if (!node) return null;
+  const element =
+    node.nodeType === Node.ELEMENT_NODE
+      ? node
+      : node.nodeType === Node.TEXT_NODE
+        ? node.parentElement || null
+        : null;
+  if (!element || cgptIsSidebarBulkHelperNode(element)) {
+    return null;
+  }
+  if (typeof element.closest === "function") {
+    const sidebarRoot = element.closest(CGPT_SIDEBAR_MUTATION_ROOT_SELECTOR);
+    if (sidebarRoot && !cgptIsSidebarBulkHelperNode(sidebarRoot)) {
+      return sidebarRoot;
+    }
+  }
+  return cgptCanMutationAffectSidebarSnapshot(element) ? element : null;
+}
+
+function cgptHandleSidebarConversationRouteChange(root = document) {
+  const nextRouteKey = cgptGetSidebarConversationRouteKey();
+  if (!nextRouteKey || nextRouteKey === cgptSidebarConversationRouteKey) {
+    return false;
+  }
+  cgptSidebarConversationRouteKey = nextRouteKey;
+  cgptIncrementSidebarPerfMetric("routeChanges");
+  cgptScheduleSidebarSnapshotRefresh(root, { forceRefresh: true, reason: "route-change" });
+  return true;
+}
+
+function cgptDispatchSidebarConversationRouteChange() {
+  if (typeof window === "undefined" || typeof window.dispatchEvent !== "function") {
+    return;
+  }
+  if (typeof CustomEvent === "function") {
+    window.dispatchEvent(new CustomEvent(CGPT_SIDEBAR_ROUTE_CHANGE_EVENT));
+    return;
+  }
+  window.dispatchEvent({ type: CGPT_SIDEBAR_ROUTE_CHANGE_EVENT });
+}
+
+function cgptBindSidebarConversationRouteListeners(root = document) {
+  if (cgptSidebarConversationRouteListenerBound || typeof window === "undefined") {
+    return;
+  }
+  cgptSidebarConversationRouteListenerBound = true;
+  const handleRouteChange = () => {
+    cgptHandleSidebarConversationRouteChange(root);
+  };
+
+  if (window.history) {
+    ["pushState", "replaceState"].forEach((methodName) => {
+      const original = window.history[methodName];
+      if (typeof original !== "function" || original.__cgptSidebarWrapped === true) {
+        return;
+      }
+      const wrapped = function wrappedHistoryState(...args) {
+        const result = original.apply(this, args);
+        cgptDispatchSidebarConversationRouteChange();
+        return result;
+      };
+      wrapped.__cgptSidebarWrapped = true;
+      window.history[methodName] = wrapped;
+    });
+  }
+
+  if (typeof window.addEventListener === "function") {
+    window.addEventListener("popstate", handleRouteChange);
+    window.addEventListener(CGPT_SIDEBAR_ROUTE_CHANGE_EVENT, handleRouteChange);
+  }
 }
 
 function cgptCloneSidebarConversationSnapshot(snapshot = {}) {
@@ -1269,11 +1404,13 @@ function cgptCreateSidebarSnapshotAfterApiFailure(_root = document, diagnostics 
 }
 
 function cgptRefreshSidebarConversationSnapshot(root = document, options = {}) {
+  cgptIncrementSidebarPerfMetric("refreshCalls");
   const forceRefresh = Boolean(options && typeof options === "object" && options.forceRefresh);
   const routeKey = cgptGetSidebarConversationRouteKey();
   if (!forceRefresh) {
     const cachedSnapshot = cgptGetCachedSidebarConversationSnapshot(routeKey);
     if (cachedSnapshot) {
+      cgptIncrementSidebarPerfMetric("cacheHits");
       cgptSidebarConversationRouteKey = routeKey;
       cgptSidebarConversationSnapshot = cgptBuildPlainSidebarSnapshot(cachedSnapshot);
       if (typeof cgptRenderSidebarBulkPanel === "function") {
@@ -1283,6 +1420,7 @@ function cgptRefreshSidebarConversationSnapshot(root = document, options = {}) {
     }
   }
   if (!cgptSidebarConversationRefreshPromise && typeof cgptFetchSidebarApiSnapshot === "function") {
+    cgptIncrementSidebarPerfMetric("apiRefreshes");
     const requestedRouteKey = routeKey;
     cgptSidebarConversationRouteKey = requestedRouteKey;
     cgptSidebarConversationRefreshPromise = cgptFetchSidebarApiSnapshot()
@@ -1401,13 +1539,35 @@ function cgptIsSidebarConversationRefreshPending() {
   return Boolean(cgptSidebarConversationRefreshPromise);
 }
 
-function cgptScheduleSidebarSnapshotRefresh(root = document) {
+function cgptScheduleSidebarSnapshotRefresh(root = document, options = {}) {
+  const forceRefresh = Boolean(options && typeof options === "object" && options.forceRefresh);
+  const reason =
+    options && typeof options === "object" && typeof options.reason === "string"
+      ? options.reason
+      : "";
+  cgptIncrementSidebarPerfMetric("scheduledRefreshes");
+  if (forceRefresh) {
+    cgptSidebarPendingRefreshForce = true;
+  }
+  if (reason) {
+    cgptSidebarPendingRefreshReason = reason;
+  }
   if (cgptSidebarConversationRefreshTimer) {
     clearTimeout(cgptSidebarConversationRefreshTimer);
   }
   cgptSidebarConversationRefreshTimer = setTimeout(() => {
+    const nextForceRefresh = cgptSidebarPendingRefreshForce;
+    const nextReason = cgptSidebarPendingRefreshReason;
+    cgptSidebarPendingRefreshForce = false;
+    cgptSidebarPendingRefreshReason = "";
     cgptSidebarConversationRefreshTimer = null;
-    cgptRefreshSidebarConversationSnapshot(root);
+    cgptIncrementSidebarPerfMetric("scheduledRefreshFlushes");
+    if (nextReason === "mutation") {
+      cgptIncrementSidebarPerfMetric("mutationRefreshes");
+    }
+    cgptRefreshSidebarConversationSnapshot(root, {
+      forceRefresh: nextForceRefresh,
+    });
     if (typeof cgptRenderSidebarBulkPanel === "function") {
       cgptRenderSidebarBulkPanel();
     }
@@ -1417,33 +1577,31 @@ function cgptScheduleSidebarSnapshotRefresh(root = document) {
 function cgptStartSidebarConversationTracker(root = document) {
   cgptRefreshSidebarConversationSnapshot(root);
   cgptSidebarConversationRouteKey = cgptGetSidebarConversationRouteKey();
+  cgptBindSidebarConversationRouteListeners(root);
   if (!cgptSidebarConversationRouteWatcher) {
     cgptSidebarConversationRouteWatcher = setInterval(() => {
-      const nextRouteKey = cgptGetSidebarConversationRouteKey();
-      if (!nextRouteKey || nextRouteKey === cgptSidebarConversationRouteKey) {
-        return;
-      }
-      cgptSidebarConversationRouteKey = nextRouteKey;
-      cgptScheduleSidebarSnapshotRefresh(root);
-    }, 500);
+      cgptHandleSidebarConversationRouteChange(root);
+    }, CGPT_SIDEBAR_ROUTE_FALLBACK_INTERVAL_MS);
   }
   if (cgptSidebarConversationObserver || typeof MutationObserver !== "function" || !document.body) {
     return;
   }
   cgptSidebarConversationObserver = new MutationObserver((mutations) => {
+    cgptIncrementSidebarPerfMetric("mutationBatches");
     const shouldRefresh = mutations.some((mutation) => {
-      if (cgptIsSidebarBulkHelperNode(mutation.target)) {
-        return false;
-      }
-      if (mutation.type === "attributes") {
+      if (cgptResolveSidebarMutationRoot(mutation.target)) {
         return true;
       }
-      const addedNodes = Array.from(mutation.addedNodes || []).filter((node) => !cgptIsSidebarBulkHelperNode(node));
-      const removedNodes = Array.from(mutation.removedNodes || []).filter((node) => !cgptIsSidebarBulkHelperNode(node));
-      return addedNodes.length > 0 || removedNodes.length > 0;
+      const changedNodes = []
+        .concat(Array.from(mutation.addedNodes || []))
+        .concat(Array.from(mutation.removedNodes || []));
+      return changedNodes.some((node) => Boolean(cgptResolveSidebarMutationRoot(node)));
     });
+    if (!shouldRefresh) {
+      cgptIncrementSidebarPerfMetric("skippedMutationBatches");
+    }
     if (!shouldRefresh) return;
-    cgptScheduleSidebarSnapshotRefresh(root);
+    cgptScheduleSidebarSnapshotRefresh(root, { reason: "mutation" });
   });
   cgptSidebarConversationObserver.observe(document.body, {
     childList: true,
@@ -1470,6 +1628,8 @@ if (typeof module !== "undefined" && module.exports) {
     cgptGetCurrentProjectIdFromLocation,
     cgptHasProjectConversationCoverage,
     cgptGetSidebarConversationRouteKey,
+    cgptResolveSidebarMutationRoot,
+    cgptHandleSidebarConversationRouteChange,
     cgptGetSidebarConversationSnapshot,
     cgptRefreshSidebarConversationSnapshot,
     cgptIsSidebarConversationRefreshPending,
@@ -1478,5 +1638,6 @@ if (typeof module !== "undefined" && module.exports) {
     cgptAppendDomSidebarSnapshotEntries,
     cgptMergeSidebarApiSnapshotWithDom,
     cgptFilterProjectSectionLabel: cgptIsProjectSectionLabel,
+    CGPT_SIDEBAR_ROUTE_CHANGE_EVENT,
   };
 }

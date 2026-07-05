@@ -7,6 +7,7 @@
     "test": "node --test tests/unit/*.test.js",
     "test:unit": "node --test tests/unit/*.test.js",
     "test:benchmark:lightweight": "node tests/tools/run-playwright.js test --config tests/playwright.benchmark.config.js tests/e2e/lightweight-benchmark.spec.js",
+    "test:benchmark:runtime": "node tests/tools/run-playwright.js test --config tests/playwright.benchmark.config.js tests/e2e/runtime-mutation-benchmark.spec.js",
     "test:e2e": "node tests/tools/run-playwright.js test --config tests/playwright.regression.config.js",
     "test:e2e:headed": "node tests/tools/run-playwright.js test --config tests/playwright.regression.config.js --headed",
     "test:e2e:full": "node tests/tools/run-playwright.js test --config tests/playwright.full.config.js",

@@ -15,6 +15,30 @@ const CHAT_LOG_RENDER_RETRY_DELAY_MS = 250;
 const CHAT_LOG_RENDER_MAX_RETRIES = 12;
 const CHAT_LOG_MESSAGE_BADGE_SELECTOR = "[data-cgpt-helper-chat-badge='1']";
 const CHAT_LOG_UPDATED_EVENT = "cgpt-helper-chatlog-updated";
+const CHAT_LOG_HELPER_TEXT_EXCLUDE_SELECTOR = [
+  CHAT_LOG_MESSAGE_BADGE_SELECTOR,
+  ".cgpt-helper-chatlog-timestamp-wrapper",
+  ".cgpt-helper-fold-actions",
+].join(",");
+
+function cgptGetChatLogPerfMetricsBucket() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  if (!window.__cgptPerfMetrics || typeof window.__cgptPerfMetrics !== "object") {
+    window.__cgptPerfMetrics = {};
+  }
+  if (!window.__cgptPerfMetrics.chatLog || typeof window.__cgptPerfMetrics.chatLog !== "object") {
+    window.__cgptPerfMetrics.chatLog = {};
+  }
+  return window.__cgptPerfMetrics.chatLog;
+}
+
+function cgptIncrementChatLogPerfMetric(name, amount = 1) {
+  const metrics = cgptGetChatLogPerfMetricsBucket();
+  if (!metrics || !name) return;
+  metrics[name] = (Number(metrics[name]) || 0) + (Number(amount) || 0);
+}
 
 function cgptIsHelperManagedNode(node) {
   if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
@@ -223,6 +247,7 @@ function ensureChatLogTimestampStyle() {
 
 function captureChatLogsFromNode(rootNode) {
   if (!rootNode) return;
+  cgptIncrementChatLogPerfMetric("captureCalls");
 
   if (rootNode.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
     Array.from(rootNode.childNodes).forEach((child) => {
@@ -276,6 +301,7 @@ function cgptProcessOrRefreshChatMessageElement(element) {
 
 function processChatMessageElement(el, renderAttempt = 0) {
   if (!el) return;
+  cgptIncrementChatLogPerfMetric("processCalls");
   const host = cgptGetChatEntryHost(el);
   if (!host || host.dataset.cgptHelperChatTracked === "1") return;
   const roleElement = cgptGetChatRoleElement(host);
@@ -333,6 +359,7 @@ function processChatMessageElement(el, renderAttempt = 0) {
     id: entryId,
     role,
     text: fallbackText,
+    textSignature: cgptBuildChatMessageTextSignature(messageElement),
     timestamp: extractChatMessageTimestamp(host),
     displayLabel: cgptResolveChatMessageDisplayLabel(role, messageElement),
     messageId: rawId || "",
@@ -439,13 +466,18 @@ function cgptGetTrackedChatEntry(element) {
 function cgptRefreshTrackedChatMessage(element) {
   const entry = cgptGetTrackedChatEntry(element);
   if (!entry) return;
+  cgptIncrementChatLogPerfMetric("refreshCalls");
   const host = cgptGetChatEntryHost(element) || element;
   const roleElement = cgptGetChatRoleElement(host) || entry.roleElement || host;
   renderChatMessageDiagnostic(host, roleElement, null);
-  const text = extractChatMessageText(roleElement);
-  const fallbackText = text.trim() || cgptBuildChatMessageMediaPlaceholder(roleElement);
-  if (fallbackText.trim()) {
-    entry.text = fallbackText;
+  const nextTextSignature = cgptBuildChatMessageTextSignature(roleElement);
+  if (nextTextSignature !== entry.textSignature) {
+    const text = extractChatMessageText(roleElement);
+    const fallbackText = text.trim() || cgptBuildChatMessageMediaPlaceholder(roleElement);
+    if (fallbackText.trim()) {
+      entry.text = fallbackText;
+    }
+    entry.textSignature = nextTextSignature;
   }
   entry.timestamp = extractChatMessageTimestamp(host);
   entry.displayLabel = cgptResolveChatMessageDisplayLabel(entry.role, roleElement);
@@ -805,20 +837,34 @@ function cgptBuildChatMessageMediaPlaceholder(node) {
   return "";
 }
 
+function cgptBuildChatMessageTextSignature(node) {
+  if (!node) return "";
+  const childNodeCount =
+    typeof node.childNodes !== "undefined" && node.childNodes
+      ? node.childNodes.length
+      : 0;
+  const childElementCount =
+    typeof node.childElementCount === "number" ? node.childElementCount : 0;
+  const textLength =
+    typeof node.textContent === "string" ? node.textContent.length : 0;
+  return [childNodeCount, childElementCount, textLength].join(":");
+}
+
 function cgptExtractChatMessageTextFromNode(node) {
   if (!node) return "";
+  cgptIncrementChatLogPerfMetric("textExtractions");
+  if (
+    typeof node.querySelector === "function" &&
+    !node.querySelector(CHAT_LOG_HELPER_TEXT_EXCLUDE_SELECTOR)
+  ) {
+    if (node.innerText) return node.innerText.trim();
+    if (node.textContent) return node.textContent.trim();
+    return "";
+  }
   if (typeof node.cloneNode === "function") {
     const clone = node.cloneNode(true);
     if (clone && typeof clone.querySelectorAll === "function") {
-      clone
-        .querySelectorAll(
-          [
-            CHAT_LOG_MESSAGE_BADGE_SELECTOR,
-            ".cgpt-helper-chatlog-timestamp-wrapper",
-            ".cgpt-helper-fold-actions",
-          ].join(",")
-        )
-        .forEach((helperNode) => helperNode.remove());
+      clone.querySelectorAll(CHAT_LOG_HELPER_TEXT_EXCLUDE_SELECTOR).forEach((helperNode) => helperNode.remove());
     }
     if (clone && clone.innerText) return clone.innerText.trim();
     if (clone && clone.textContent) return clone.textContent.trim();
@@ -860,6 +906,7 @@ if (typeof module !== "undefined" && module.exports) {
     cgptHasUnrenderedFencedCode,
     cgptBuildChatRenderIssue,
     cgptBuildChatMessageMediaPlaceholder,
+    cgptBuildChatMessageTextSignature,
     cgptExtractChatMessageTextFromNode,
     cgptIsVisibleChatMessageRegion,
     CHAT_LOG_UPDATED_EVENT,

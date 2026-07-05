@@ -424,37 +424,89 @@ function cgptSyncSidebarProjectSelectEnabled(panel, snapshot, state) {
   select.disabled = !snapshot.sidebarFound || !snapshot.projects.length || state.runningAction !== "";
 }
 
-function cgptWatchSidebarProjectCreationDialog(panel) {
+function cgptStopSidebarProjectCreationDialogWatch(panel) {
   if (!panel) return;
   if (panel.__cgptSidebarProjectDialogWatchTimer) {
     clearInterval(panel.__cgptSidebarProjectDialogWatchTimer);
-  }
-  let sawDialog = false;
-  let ticks = 0;
-  panel.__cgptSidebarProjectDialogWatchTimer = setInterval(() => {
-    ticks += 1;
-    const hasDialog = typeof cgptHasOpenSidebarDialog === "function" && cgptHasOpenSidebarDialog();
-    if (hasDialog) {
-      sawDialog = true;
-      return;
-    }
-    if (!sawDialog && ticks < 20) {
-      return;
-    }
-    clearInterval(panel.__cgptSidebarProjectDialogWatchTimer);
     panel.__cgptSidebarProjectDialogWatchTimer = null;
-    if (typeof cgptRefreshSidebarConversationSnapshot === "function") {
-      cgptRefreshSidebarConversationSnapshot(document, { forceRefresh: true });
+  }
+  if (panel.__cgptSidebarProjectDialogWatchObserver) {
+    panel.__cgptSidebarProjectDialogWatchObserver.disconnect();
+    panel.__cgptSidebarProjectDialogWatchObserver = null;
+  }
+  if (panel.__cgptSidebarProjectDialogWatchTimeout) {
+    clearTimeout(panel.__cgptSidebarProjectDialogWatchTimeout);
+    panel.__cgptSidebarProjectDialogWatchTimeout = null;
+  }
+  panel.__cgptSidebarProjectDialogWatchState = null;
+}
+
+function cgptFinishSidebarProjectCreationDialogWatch(panel) {
+  if (!panel) return;
+  cgptStopSidebarProjectCreationDialogWatch(panel);
+  if (typeof cgptRefreshSidebarConversationSnapshot === "function") {
+    cgptRefreshSidebarConversationSnapshot(document, { forceRefresh: true });
+  }
+  const snapshot =
+    typeof cgptGetSidebarConversationSnapshot === "function"
+      ? cgptGetSidebarConversationSnapshot()
+      : { sidebarFound: false, conversations: [], projects: [] };
+  const state = typeof cgptGetSidebarBulkState === "function" ? cgptGetSidebarBulkState() : null;
+  if (!state) return;
+  cgptSyncSidebarProjectSelectEnabled(panel, snapshot, state);
+  cgptRenderSidebarBulkPanel();
+}
+
+function cgptCheckSidebarProjectCreationDialogWatch(panel) {
+  if (!panel) return false;
+  const watchState = panel.__cgptSidebarProjectDialogWatchState;
+  if (!watchState) return false;
+  const hasDialog =
+    typeof cgptHasOpenSidebarDialog === "function" && cgptHasOpenSidebarDialog();
+  if (hasDialog) {
+    watchState.sawDialog = true;
+    return false;
+  }
+  if (!watchState.sawDialog && !watchState.expired) {
+    return false;
+  }
+  cgptFinishSidebarProjectCreationDialogWatch(panel);
+  return true;
+}
+
+function cgptWatchSidebarProjectCreationDialog(panel) {
+  if (!panel) return;
+  cgptStopSidebarProjectCreationDialogWatch(panel);
+  panel.__cgptSidebarProjectDialogWatchState = {
+    sawDialog: false,
+    expired: false,
+  };
+
+  panel.__cgptSidebarProjectDialogWatchTimeout = setTimeout(() => {
+    if (!panel.__cgptSidebarProjectDialogWatchState) {
+      return;
     }
-    const snapshot =
-      typeof cgptGetSidebarConversationSnapshot === "function"
-        ? cgptGetSidebarConversationSnapshot()
-        : { sidebarFound: false, conversations: [], projects: [] };
-    const state = typeof cgptGetSidebarBulkState === "function" ? cgptGetSidebarBulkState() : null;
-    if (!state) return;
-    cgptSyncSidebarProjectSelectEnabled(panel, snapshot, state);
-    cgptRenderSidebarBulkPanel();
-  }, 150);
+    panel.__cgptSidebarProjectDialogWatchState.expired = true;
+    cgptCheckSidebarProjectCreationDialogWatch(panel);
+  }, 3000);
+
+  if (typeof MutationObserver === "function" && document && document.body) {
+    panel.__cgptSidebarProjectDialogWatchObserver = new MutationObserver(() => {
+      cgptCheckSidebarProjectCreationDialogWatch(panel);
+    });
+    panel.__cgptSidebarProjectDialogWatchObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["aria-hidden", "open", "data-state"],
+    });
+    cgptCheckSidebarProjectCreationDialogWatch(panel);
+    return;
+  }
+
+  panel.__cgptSidebarProjectDialogWatchTimer = setInterval(() => {
+    cgptCheckSidebarProjectCreationDialogWatch(panel);
+  }, 300);
 }
 
 async function cgptHandleOpenSidebarProjectCreation() {
@@ -1368,4 +1420,13 @@ function cgptRenderSidebarBulkPanel() {
   cgptRenderSidebarBulkTitleBatchControls(panel, state);
   cgptRenderSidebarBulkList(panel, visibleConversations, state);
   cgptRenderSidebarBulkResults(panel, state);
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    cgptWatchSidebarProjectCreationDialog,
+    cgptCheckSidebarProjectCreationDialogWatch,
+    cgptFinishSidebarProjectCreationDialogWatch,
+    cgptStopSidebarProjectCreationDialogWatch,
+  };
 }

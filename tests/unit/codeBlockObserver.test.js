@@ -46,3 +46,21 @@ test("cgptCanContainCodeBlocks ignores helper nodes and accepts pre containers",
   assert.equal(cgptCanContainCodeBlocks(preNode), true);
   resetGlobals();
 });
+
+test("cgptResolveCodeBlockMutationRoot keeps text nodes for targeted code refreshes", () => {
+  global.Node = { ELEMENT_NODE: 1, TEXT_NODE: 3, DOCUMENT_NODE: 9, DOCUMENT_FRAGMENT_NODE: 11 };
+  const { cgptResolveCodeBlockMutationRoot } = loadModule();
+
+  const textNode = { nodeType: 3, parentElement: { tagName: "CODE" } };
+  assert.equal(cgptResolveCodeBlockMutationRoot(textNode), textNode);
+
+  const nonCodeElement = {
+    nodeType: 1,
+    parentElement: null,
+    closest: () => null,
+    matches: () => false,
+    querySelector: () => null,
+  };
+  assert.equal(cgptResolveCodeBlockMutationRoot(nonCodeElement), null);
+  resetGlobals();
+});

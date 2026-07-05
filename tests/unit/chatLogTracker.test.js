@@ -292,6 +292,28 @@ test("cgptBuildChatMessageMediaPlaceholder falls back to the image button label"
   resetGlobals();
 });
 
+test("cgptBuildChatMessageTextSignature changes when text length or child counts change", () => {
+  const { cgptBuildChatMessageTextSignature } = loadModule();
+
+  assert.equal(
+    cgptBuildChatMessageTextSignature({
+      childNodes: [{}, {}],
+      childElementCount: 1,
+      textContent: "hello",
+    }),
+    "2:1:5"
+  );
+  assert.equal(
+    cgptBuildChatMessageTextSignature({
+      childNodes: [{}, {}, {}],
+      childElementCount: 2,
+      textContent: "hello world",
+    }),
+    "3:2:11"
+  );
+  resetGlobals();
+});
+
 test("cgptResolveChatMessageDisplayLabel delegates to shared label resolver", () => {
   global.cgptGetChatEntryDisplayLabel = ({ role, element }) =>
     role === "assistant" && element && element.model ? "GPT 5.5 Thinking" : "User";
