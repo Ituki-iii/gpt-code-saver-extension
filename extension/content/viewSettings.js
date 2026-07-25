@@ -1,5 +1,6 @@
 const DEFAULT_VIEW_SETTINGS = {
   compactLineCount: 1,
+  chatOverlayEnabled: false,
   chatWindowLeftAligned: false,
   chatBubbleWidthPx: 960,
 };
@@ -36,6 +37,9 @@ function cgptMergeViewSettings(nextSettings) {
       DEFAULT_VIEW_SETTINGS.compactLineCount,
       { min: 0 }
     );
+  }
+  if (typeof nextSettings.chatOverlayEnabled !== "undefined") {
+    cgptViewSettings.chatOverlayEnabled = nextSettings.chatOverlayEnabled === true;
   }
   if (typeof nextSettings.chatWindowLeftAligned !== "undefined") {
     cgptViewSettings.chatWindowLeftAligned = nextSettings.chatWindowLeftAligned === true;

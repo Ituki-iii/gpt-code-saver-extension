@@ -181,6 +181,8 @@ test.describe("offline heading fixtures", () => {
           waitUntil: "domcontentloaded",
         });
 
+        await page.getByRole("button", { name: "Reapply" }).click();
+
         const expectedLevels = scenario.headings.map((heading) =>
           Number.parseInt(String(heading.tagName || "").replace(/^h/i, ""), 10)
         );

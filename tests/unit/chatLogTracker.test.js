@@ -9,6 +9,7 @@ function loadModule() {
 function resetGlobals() {
   delete global.getConversationKey;
   delete global.Node;
+  delete global.cgptGetViewSettings;
 }
 
 test("cgptBuildResponseFilePath stores chat text under chat-logs with a sanitized conversation key", () => {
@@ -146,6 +147,17 @@ test("cgptCanContainChatMessages ignores helper subtrees and accepts message hos
   resetGlobals();
 });
 
+test("cgptShouldEnableChatOverlayHelpers defaults to off and follows view settings", () => {
+  const { cgptShouldEnableChatOverlayHelpers } = loadModule();
+
+  assert.equal(cgptShouldEnableChatOverlayHelpers(), false);
+
+  global.cgptGetViewSettings = () => ({ chatOverlayEnabled: true });
+  assert.equal(cgptShouldEnableChatOverlayHelpers(), true);
+
+  resetGlobals();
+});
+
 test("cgptGetChatEntryHost prefers the conversation turn wrapper", () => {
   const { cgptGetChatEntryHost } = loadModule();
   const turn = {
@@ -250,6 +262,53 @@ test("cgptExtractChatMessageTextFromNode removes helper chat badges from extract
   resetGlobals();
 });
 
+test("cgptBuildChatMessageTextSignature ignores helper overlay nodes", () => {
+  const { cgptBuildChatMessageTextSignature } = loadModule();
+  const cloneWithoutHelper = {
+    innerText: "Actual message",
+    textContent: "Actual message",
+    querySelectorAll() {
+      return [];
+    },
+  };
+  const cloneWithHelper = {
+    innerText: "Assistant\nActual message",
+    textContent: "Assistant\nActual message",
+    querySelectorAll(selector) {
+      if (selector.includes("[data-cgpt-helper-chat-badge='1']")) {
+        return [
+          {
+            remove() {
+              cloneWithHelper.innerText = "Actual message";
+              cloneWithHelper.textContent = "Actual message";
+            },
+          },
+        ];
+      }
+      return [];
+    },
+  };
+  const buildNode = (hasHelper = false) => ({
+    innerText: "Actual message",
+    textContent: "Actual message",
+    querySelector(selector) {
+      return selector.includes("[data-cgpt-helper-chat-badge='1']") && hasHelper ? {} : null;
+    },
+    cloneNode() {
+      return hasHelper ? cloneWithHelper : cloneWithoutHelper;
+    },
+    querySelectorAll() {
+      return [];
+    },
+  });
+
+  assert.equal(
+    cgptBuildChatMessageTextSignature(buildNode(true)),
+    cgptBuildChatMessageTextSignature(buildNode(false))
+  );
+  resetGlobals();
+});
+
 test("cgptBuildChatMessageMediaPlaceholder creates an image placeholder from alt text", () => {
   const { cgptBuildChatMessageMediaPlaceholder } = loadModule();
   const node = {
@@ -297,19 +356,23 @@ test("cgptBuildChatMessageTextSignature changes when text length or child counts
 
   assert.equal(
     cgptBuildChatMessageTextSignature({
-      childNodes: [{}, {}],
-      childElementCount: 1,
+      innerText: "hello",
       textContent: "hello",
+      querySelectorAll() {
+        return [];
+      },
     }),
-    "2:1:5"
+    "5:hello:0:0:0:0"
   );
   assert.equal(
     cgptBuildChatMessageTextSignature({
-      childNodes: [{}, {}, {}],
-      childElementCount: 2,
+      innerText: "hello world",
       textContent: "hello world",
+      querySelectorAll() {
+        return [];
+      },
     }),
-    "3:2:11"
+    "11:hello world:0:0:0:0"
   );
   resetGlobals();
 });

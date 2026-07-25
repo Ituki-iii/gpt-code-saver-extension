@@ -14,6 +14,7 @@ function resetGlobals() {
   delete global.cgptApplyPanelTextTone;
   delete global.cgptApplyPanelInputStyle;
   delete global.cgptRefreshChatWindowAlignment;
+  delete global.cgptRefreshChatOverlayHelpers;
   delete global.resetChatLogEntries;
   delete global.captureChatLogsFromNode;
   delete global.cgptReapplyCodeSaverDecorations;
@@ -61,6 +62,7 @@ test("createChatBubbleWidthControl uses horizontal presets without a slider", ()
   };
   global.cgptGetViewSettings = () => ({
     compactLineCount: 1,
+    chatOverlayEnabled: false,
     chatWindowLeftAligned: false,
     chatBubbleWidthPx: 960,
   });
@@ -99,6 +101,7 @@ test("createChatBubbleWidthControl applies the entered width with a button", () 
   };
   global.cgptGetViewSettings = () => ({
     compactLineCount: 1,
+    chatOverlayEnabled: false,
     chatWindowLeftAligned: false,
     chatBubbleWidthPx: 960,
   });
@@ -106,6 +109,7 @@ test("createChatBubbleWidthControl applies the entered width with a button", () 
     applied.push(partial);
     callback({
       compactLineCount: 1,
+      chatOverlayEnabled: false,
       chatWindowLeftAligned: false,
       chatBubbleWidthPx: partial.chatBubbleWidthPx,
     });
@@ -130,6 +134,43 @@ test("createChatBubbleWidthControl applies the entered width with a button", () 
   resetGlobals();
 });
 
+test("createChatOverlayControl updates the setting and refreshes overlay helpers only", () => {
+  const calls = [];
+  global.document = {
+    createElement: createElementStub,
+  };
+  global.cgptGetViewSettings = () => ({
+    compactLineCount: 1,
+    chatOverlayEnabled: false,
+    chatWindowLeftAligned: false,
+    chatBubbleWidthPx: 960,
+  });
+  global.cgptUpdateViewSettings = (partial, callback) => {
+    calls.push(partial);
+    callback({
+      compactLineCount: 1,
+      chatOverlayEnabled: partial.chatOverlayEnabled,
+      chatWindowLeftAligned: false,
+      chatBubbleWidthPx: 960,
+    });
+  };
+  global.cgptRefreshChatOverlayHelpers = (root) => {
+    calls.push({ type: "overlayRefresh", root });
+  };
+
+  const { createChatOverlayControl } = loadModule();
+  const control = createChatOverlayControl();
+  const checkbox = control.children[0];
+  checkbox.checked = true;
+  checkbox.dispatch("change");
+
+  assert.deepStrictEqual(calls, [
+    { chatOverlayEnabled: true },
+    { type: "overlayRefresh", root: global.document },
+  ]);
+  resetGlobals();
+});
+
 test("requestCodeSaverReapply resyncs chat layout, logs, code blocks, and headings", () => {
   const calls = [];
   const bodyA = { id: "body-a" };
@@ -137,7 +178,9 @@ test("requestCodeSaverReapply resyncs chat layout, logs, code blocks, and headin
   global.document = {
     body: {},
     querySelectorAll(selector) {
-      return selector === ".cgpt-helper-message-body" ? [bodyA, bodyB] : [];
+      return selector === "[data-message-author-role='assistant']"
+        ? [bodyA, bodyB]
+        : [];
     },
   };
   global.cgptRefreshChatWindowAlignment = (root) => {
@@ -188,6 +231,27 @@ test("requestCodeSaverReapply falls back to decorating code blocks when reapply 
 
   const { requestCodeSaverReapply } = loadModule();
   requestCodeSaverReapply();
+
+  assert.deepStrictEqual(calls, [
+    { type: "decorate", root: global.document },
+  ]);
+  resetGlobals();
+});
+
+test("requestChatOverlayRefresh falls back to full reapply when the lightweight hook is unavailable", () => {
+  const calls = [];
+  global.document = {
+    body: {},
+    querySelectorAll() {
+      return [];
+    },
+  };
+  global.decorateCodeBlocks = (root) => {
+    calls.push({ type: "decorate", root });
+  };
+
+  const { requestChatOverlayRefresh } = loadModule();
+  requestChatOverlayRefresh();
 
   assert.deepStrictEqual(calls, [
     { type: "decorate", root: global.document },

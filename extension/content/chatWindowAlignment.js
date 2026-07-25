@@ -1,12 +1,15 @@
 const CGPT_CHAT_LEFT_ALIGN_CLASS = "cgpt-helper-chat-left-align";
 const CGPT_CHAT_LEFT_ALIGN_STYLE_ID = "cgpt-helper-chat-left-align-style";
 const CGPT_CHAT_BUBBLE_WIDTH_VAR = "--cgpt-helper-chat-bubble-width";
+const CGPT_CHAT_LEFT_ALIGN_GUTTER_VAR = "--cgpt-helper-chat-left-align-gutter";
 const CGPT_DEFAULT_CHAT_BUBBLE_WIDTH_PX = 960;
+const CGPT_DEFAULT_CHAT_LEFT_ALIGN_GUTTER_PX = 12;
 
 function cgptBuildChatWindowAlignmentCss() {
   return `
 :root {
   ${CGPT_CHAT_BUBBLE_WIDTH_VAR}: ${CGPT_DEFAULT_CHAT_BUBBLE_WIDTH_PX}px;
+  ${CGPT_CHAT_LEFT_ALIGN_GUTTER_VAR}: ${CGPT_DEFAULT_CHAT_LEFT_ALIGN_GUTTER_PX}px;
 }
 
 body main [data-message-author-role] {
@@ -36,11 +39,11 @@ body #prompt-textarea {
 }
 
 body.${CGPT_CHAT_LEFT_ALIGN_CLASS} main [class*="--thread-content-margin"] {
-  --thread-content-margin: 0px !important;
+  --thread-content-margin: var(${CGPT_CHAT_LEFT_ALIGN_GUTTER_VAR}) !important;
 }
 
 body.${CGPT_CHAT_LEFT_ALIGN_CLASS} main [class*="--thread-content-max-width"] {
-  margin-left: 0 !important;
+  margin-left: var(${CGPT_CHAT_LEFT_ALIGN_GUTTER_VAR}) !important;
   margin-right: auto !important;
 }
 
@@ -101,7 +104,9 @@ if (typeof module !== "undefined" && module.exports) {
     CGPT_CHAT_LEFT_ALIGN_CLASS,
     CGPT_CHAT_LEFT_ALIGN_STYLE_ID,
     CGPT_CHAT_BUBBLE_WIDTH_VAR,
+    CGPT_CHAT_LEFT_ALIGN_GUTTER_VAR,
     CGPT_DEFAULT_CHAT_BUBBLE_WIDTH_PX,
+    CGPT_DEFAULT_CHAT_LEFT_ALIGN_GUTTER_PX,
     cgptApplyChatWindowAlignment,
     cgptBuildChatWindowAlignmentCss,
     cgptInjectChatWindowAlignmentStyle,

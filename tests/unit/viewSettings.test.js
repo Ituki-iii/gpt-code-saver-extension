@@ -14,6 +14,7 @@ function resetGlobals() {
 
 const DEFAULT_EXPECTED_VIEW_SETTINGS = {
   compactLineCount: 1,
+  chatOverlayEnabled: false,
   chatWindowLeftAligned: false,
   chatBubbleWidthPx: 960,
 };
@@ -49,6 +50,7 @@ test("cgptUpdateViewSettings persists normalized compact line counts", async () 
     cgptUpdateViewSettings({ compactLineCount: 5 }, (settings) => {
       assert.deepStrictEqual(settings, {
         compactLineCount: 5,
+        chatOverlayEnabled: false,
         chatWindowLeftAligned: false,
         chatBubbleWidthPx: 960,
       });
@@ -58,12 +60,14 @@ test("cgptUpdateViewSettings persists normalized compact line counts", async () 
 
   assert.deepStrictEqual(cgptGetViewSettings(), {
     compactLineCount: 5,
+    chatOverlayEnabled: false,
     chatWindowLeftAligned: false,
     chatBubbleWidthPx: 960,
   });
   assert.deepStrictEqual(storedPayload, {
     cgptViewSettings: {
       compactLineCount: 5,
+      chatOverlayEnabled: false,
       chatWindowLeftAligned: false,
       chatBubbleWidthPx: 960,
     },
@@ -89,6 +93,7 @@ test("cgptUpdateViewSettings persists chat window left alignment", async () => {
     cgptUpdateViewSettings({ chatWindowLeftAligned: true }, (settings) => {
       assert.deepStrictEqual(settings, {
         compactLineCount: 1,
+        chatOverlayEnabled: false,
         chatWindowLeftAligned: true,
         chatBubbleWidthPx: 960,
       });
@@ -98,12 +103,14 @@ test("cgptUpdateViewSettings persists chat window left alignment", async () => {
 
   assert.deepStrictEqual(cgptGetViewSettings(), {
     compactLineCount: 1,
+    chatOverlayEnabled: false,
     chatWindowLeftAligned: true,
     chatBubbleWidthPx: 960,
   });
   assert.deepStrictEqual(storedPayload, {
     cgptViewSettings: {
       compactLineCount: 1,
+      chatOverlayEnabled: false,
       chatWindowLeftAligned: true,
       chatBubbleWidthPx: 960,
     },
@@ -129,6 +136,7 @@ test("cgptUpdateViewSettings persists unbounded chat bubble widths", async () =>
     cgptUpdateViewSettings({ chatBubbleWidthPx: 2400 }, (settings) => {
       assert.deepStrictEqual(settings, {
         compactLineCount: 1,
+        chatOverlayEnabled: false,
         chatWindowLeftAligned: false,
         chatBubbleWidthPx: 2400,
       });
@@ -138,14 +146,59 @@ test("cgptUpdateViewSettings persists unbounded chat bubble widths", async () =>
 
   assert.deepStrictEqual(cgptGetViewSettings(), {
     compactLineCount: 1,
+    chatOverlayEnabled: false,
     chatWindowLeftAligned: false,
     chatBubbleWidthPx: 2400,
   });
   assert.deepStrictEqual(storedPayload, {
     cgptViewSettings: {
       compactLineCount: 1,
+      chatOverlayEnabled: false,
       chatWindowLeftAligned: false,
       chatBubbleWidthPx: 2400,
+    },
+  });
+  resetGlobals();
+});
+
+test("cgptUpdateViewSettings persists chat overlay helpers", async () => {
+  const { cgptUpdateViewSettings, cgptGetViewSettings } = loadModule();
+  let storedPayload = null;
+  global.chrome = {
+    storage: {
+      sync: {
+        set(payload, callback) {
+          storedPayload = payload;
+          callback();
+        },
+      },
+    },
+  };
+
+  await new Promise((resolve) => {
+    cgptUpdateViewSettings({ chatOverlayEnabled: true }, (settings) => {
+      assert.deepStrictEqual(settings, {
+        compactLineCount: 1,
+        chatOverlayEnabled: true,
+        chatWindowLeftAligned: false,
+        chatBubbleWidthPx: 960,
+      });
+      resolve();
+    });
+  });
+
+  assert.deepStrictEqual(cgptGetViewSettings(), {
+    compactLineCount: 1,
+    chatOverlayEnabled: true,
+    chatWindowLeftAligned: false,
+    chatBubbleWidthPx: 960,
+  });
+  assert.deepStrictEqual(storedPayload, {
+    cgptViewSettings: {
+      compactLineCount: 1,
+      chatOverlayEnabled: true,
+      chatWindowLeftAligned: false,
+      chatBubbleWidthPx: 960,
     },
   });
   resetGlobals();

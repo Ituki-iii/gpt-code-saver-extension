@@ -2,6 +2,11 @@
 
 This file contains repository-specific instructions for Codex agents working on this project.
 
+## Language
+
+- Unless the user explicitly requests another language, respond to the user in Japanese.
+- Keep code, commands, file paths, API names, and identifiers in their original form when that is clearer.
+
 ## Chat Log Regression Guard
 
 When fixing Chat Log missing entries, wrong labels, or role mismatches, do not start from visual density, spacing, card layout, or preview line changes.

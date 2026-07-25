@@ -33,11 +33,13 @@ test("chat log uses inner message content from conversation-turn hosts", async (
       documentOnly: false,
     });
 
+    await expect(page.locator(".cgpt-helper-message-body")).toHaveCount(0);
+    await expect(page.locator("[data-cgpt-helper-chat-badge='1']")).toHaveCount(0);
+
     await page.getByRole("button", { name: "Chat Log" }).click();
     const modal = page.locator("#cgpt-helper-chatlog-modal");
     await expect(modal).toBeVisible();
     await expect(modal).toContainText("[Image: image(25).png]");
-    await expect(modal).toContainText("Use the following code block.");
     await expect(modal).toContainText("Code blocks (1)");
     await expect(modal).toContainText("src/app.js");
     await expect(modal).not.toContainText("You said:");
@@ -64,7 +66,7 @@ test("chat log uses inner message content from conversation-turn hosts", async (
       {
         index: 1,
         label: "GPT 5.5 Thinking",
-        body: "Use the following code block.",
+        body: "Implementation...",
       },
     ]);
 

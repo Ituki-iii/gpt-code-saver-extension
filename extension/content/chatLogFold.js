@@ -336,6 +336,64 @@ function ensureChatLogFoldStyle() {
       gap: 8px;
       color: inherit;
     }
+    .cgpt-helper-chat-overlay-root {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+      overflow: visible;
+    }
+    .cgpt-helper-chat-overlay-info {
+      position: absolute;
+      top: -14px;
+      left: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      pointer-events: none;
+    }
+    .cgpt-helper-chat-overlay-info > [data-cgpt-helper-chat-badge='1'] {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+    .cgpt-helper-chat-overlay-actions {
+      position: absolute;
+      top: -14px;
+      right: 0;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+      max-width: min(100%, 640px);
+      pointer-events: auto;
+    }
+    .cgpt-helper-chat-overlay-guides {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .cgpt-helper-chat-overlay-guide {
+      position: absolute;
+      width: ${CGPT_FOLD_LINE_WIDTH_PX}px;
+      border-radius: 999px;
+      opacity: 0.9;
+    }
+    .cgpt-helper-chat-overlay-guide-marker {
+      position: absolute;
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      transform: translate(-3px, -1px);
+      opacity: 0.95;
+    }
+    [data-cgpt-helper-chat-collapsed='1'] > [data-cgpt-helper-chat-overlay-root='1'] > [data-cgpt-helper-chat-overlay-guides='1'] {
+      display: none !important;
+    }
+    [data-cgpt-helper-chat-collapsed='1'] > [data-cgpt-helper-chat-content='1'] {
+      display: none !important;
+    }
     .cgpt-helper-fold-collapsed .cgpt-helper-fold-body {
       display: none;
     }

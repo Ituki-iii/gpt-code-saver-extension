@@ -135,6 +135,7 @@ test.describe("offline chatgpt ui pattern fixtures with extension", () => {
         });
 
         await expect(page.locator("#cgpt-code-helper-panel")).toBeVisible({ timeout: 10_000 });
+        await page.getByRole("button", { name: "Reapply" }).click();
 
         const expectedLevels = scenario.summary.headingTags.map((tagName) =>
           Number.parseInt(String(tagName).replace(/^h/i, ""), 10)

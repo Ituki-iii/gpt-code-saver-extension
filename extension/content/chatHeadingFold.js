@@ -169,7 +169,11 @@ function cgptToggleHeadingFoldsAtLevel(level, shouldExpand = true) {
     const foldLevel = Number.parseInt(fold.dataset.cgptHelperFoldLevel, 10);
     if (foldLevel === targetLevel) {
       cgptSetHeadingFoldOpen(fold, shouldExpand);
-      const root = fold.closest(".cgpt-helper-message-body");
+      const root =
+        fold.closest("[data-message-author-role]") ||
+        fold.closest("section[data-testid^='conversation-turn-']") ||
+        fold.closest("[data-cgpt-helper-chat-overlay-applied='1']") ||
+        fold.closest(".cgpt-helper-message-body");
       if (root) {
         affectedRoots.add(root);
       }

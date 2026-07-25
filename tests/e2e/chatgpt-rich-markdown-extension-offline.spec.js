@@ -24,8 +24,8 @@ const scenarios = [
       <p>区切り線の後にも本文が続きます。</p>
     `,
     expected: {
-      headingFoldCount: 1,
-      headingLevels: [2],
+      headingFoldCount: 0,
+      headingLevels: [],
       rawHeadingTags: ["h2"],
       preCount: 0,
       inlineCodeCount: 0,
@@ -44,7 +44,6 @@ const scenarios = [
       checkboxCount: 3,
       paragraphCount: 2,
     },
-    toggleLevels: [2],
   },
   {
     id: "skipped-levels-with-table-and-quote",
@@ -71,8 +70,8 @@ const scenarios = [
 console.log(total);</code></pre>
     `,
     expected: {
-      headingFoldCount: 3,
-      headingLevels: [2, 4, 3],
+      headingFoldCount: 0,
+      headingLevels: [],
       rawHeadingTags: ["h2", "h4", "h3"],
       preCount: 1,
       inlineCodeCount: 0,
@@ -91,7 +90,6 @@ console.log(total);</code></pre>
       checkboxCount: 0,
       paragraphCount: 3,
     },
-    toggleLevels: [2, 3, 4],
   },
   {
     id: "kitchen-sink-inline-and-blocks",
@@ -127,8 +125,8 @@ console.log(total);</code></pre>
       </table>
     `,
     expected: {
-      headingFoldCount: 4,
-      headingLevels: [1, 2, 3, 3],
+      headingFoldCount: 0,
+      headingLevels: [],
       rawHeadingTags: ["h1", "h2", "h3", "h3"],
       preCount: 1,
       inlineCodeCount: 1,
@@ -147,7 +145,6 @@ console.log(total);</code></pre>
       checkboxCount: 0,
       paragraphCount: 3,
     },
-    toggleLevels: [1, 2, 3],
   },
   {
     id: "delayed-markdown-hydration",
@@ -193,7 +190,6 @@ console.log(total);</code></pre>
       checkboxCount: 0,
       paragraphCount: 1,
     },
-    toggleLevels: [],
     assertNoRawFenceText: true,
   },
 ];
@@ -276,7 +272,7 @@ function buildMockPageHtml({ prompt, assistantInnerHtml, assistantScript = "" })
 
 async function readAssistantStructure(page) {
   return page.locator("[data-message-author-role='assistant']").first().evaluate((element) => {
-    const scope = element.querySelector(".cgpt-helper-message-body") || element;
+    const scope = element;
     const count = (selector) => scope.querySelectorAll(selector).length;
     return {
       headingFoldCount: count(".cgpt-helper-heading-fold"),
@@ -309,31 +305,38 @@ async function readAssistantStructure(page) {
   });
 }
 
-async function assertToggleWorksForLevel(page, level) {
-  const headingSection = page.locator("#cgpt-code-helper-panel").filter({ hasText: "Headings" }).first();
-  await expect(headingSection).toBeVisible();
+async function readAssistantRect(page) {
+  return page.locator("[data-message-author-role='assistant']").first().evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      top: Math.round(rect.top * 100) / 100,
+      height: Math.round(rect.height * 100) / 100,
+    };
+  });
+}
 
-  await headingSection.getByTitle("Collapse all visible heading folds").click();
-  await expect
-    .poll(async () => {
-      return page
-        .locator(`.cgpt-helper-heading-fold[data-cgpt-helper-fold-level='${level}']`)
-        .evaluateAll((elements) =>
-          elements.every((element) => element.getAttribute("data-cgpt-helper-fold-open") === "0")
-        );
-    })
-    .toBeTruthy();
+async function readAssistantOverlayGuidePlacement(page) {
+  return page.locator("[data-message-author-role='assistant']").first().evaluate((element) => {
+    const messageRect = element.getBoundingClientRect();
+    const guides = Array.from(element.querySelectorAll(".cgpt-helper-chat-overlay-guide"));
+    const guideRects = guides.map((guide) => guide.getBoundingClientRect());
+    const maxRight = guideRects.length
+      ? Math.max(...guideRects.map((rect) => rect.right))
+      : null;
+    const minLeft = guideRects.length
+      ? Math.min(...guideRects.map((rect) => rect.left))
+      : null;
+    return {
+      count: guides.length,
+      messageLeft: Math.round(messageRect.left * 100) / 100,
+      maxRight: maxRight === null ? null : Math.round(maxRight * 100) / 100,
+      minLeft: minLeft === null ? null : Math.round(minLeft * 100) / 100,
+    };
+  });
+}
 
-  await headingSection.getByTitle("Expand all visible heading folds").click();
-  await expect
-    .poll(async () => {
-      return page
-        .locator(`.cgpt-helper-heading-fold[data-cgpt-helper-fold-level='${level}']`)
-        .evaluateAll((elements) =>
-          elements.every((element) => element.getAttribute("data-cgpt-helper-fold-open") === "1")
-        );
-    })
-    .toBeTruthy();
+function expectRectStable(before, after, { topTolerance = 3 } = {}) {
+  expect(Math.abs(after.top - before.top)).toBeLessThanOrEqual(topTolerance);
 }
 
 test.describe("offline rich markdown fixtures with extension", () => {
@@ -407,7 +410,30 @@ test.describe("offline rich markdown fixtures with extension", () => {
         });
 
         await expect(page.locator("#cgpt-code-helper-panel")).toBeVisible();
+        const overlayToggle = page.getByLabel("Chat overlay helpers");
+        const beforeToggleRect = await readAssistantRect(page);
+        await overlayToggle.check();
         await expect(page.locator(".cgpt-helper-message-body")).toHaveCount(2);
+        await expect(page.locator("[data-cgpt-helper-chat-badge='1']")).toHaveCount(1);
+        const afterOnRect = await readAssistantRect(page);
+        expectRectStable(beforeToggleRect, afterOnRect);
+        if (scenario.expected.rawHeadingTags.length) {
+          const guidePlacement = await readAssistantOverlayGuidePlacement(page);
+          expect(guidePlacement.count).toBeGreaterThan(0);
+          expect(guidePlacement.maxRight).not.toBeNull();
+          expect(guidePlacement.maxRight).toBeLessThan(guidePlacement.messageLeft);
+        }
+
+        await overlayToggle.uncheck();
+        await expect(page.locator("[data-cgpt-helper-chat-badge='1']")).toHaveCount(0);
+        const afterOffRect = await readAssistantRect(page);
+        expectRectStable(beforeToggleRect, afterOffRect);
+
+        await overlayToggle.check();
+        await expect(page.locator(".cgpt-helper-message-body")).toHaveCount(2);
+        await expect(page.locator("[data-cgpt-helper-chat-badge='1']")).toHaveCount(1);
+        const afterSecondOnRect = await readAssistantRect(page);
+        expectRectStable(beforeToggleRect, afterSecondOnRect);
 
         const expectedStructure = { ...scenario.expected };
         await expect
@@ -425,10 +451,6 @@ test.describe("offline rich markdown fixtures with extension", () => {
               return /```/.test(actual.textContent);
             }, { timeout: 10_000 })
             .toBeFalsy();
-        }
-
-        for (const level of scenario.toggleLevels) {
-          await assertToggleWorksForLevel(page, level);
         }
 
         await expect(async () => {

@@ -49,7 +49,7 @@ async function verifyContentScriptInjection(context) {
     });
     await page.goto(probeUrl, { waitUntil: "domcontentloaded" });
     await page.locator("#cgpt-code-helper-panel").waitFor({ state: "visible", timeout: 7_500 });
-    await page.locator(".cgpt-helper-message-body").first().waitFor({ state: "attached", timeout: 7_500 });
+    await page.locator("[data-cgpt-code-wrapper='1']").first().waitFor({ state: "attached", timeout: 7_500 });
     return true;
   } catch {
     return false;

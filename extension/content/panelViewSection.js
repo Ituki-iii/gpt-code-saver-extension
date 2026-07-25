@@ -1,6 +1,7 @@
 function createViewSection() {
   const viewSection = createPanelSection("View Controls");
   viewSection.appendChild(createDisplayActionsSubLabel("Chat"));
+  viewSection.appendChild(createChatOverlayControl());
   viewSection.appendChild(createChatWindowAlignmentControl());
   viewSection.appendChild(createChatBubbleWidthControl());
   viewSection.appendChild(createDisplayActionsSubLabel("Code Blocks"));
@@ -8,6 +9,48 @@ function createViewSection() {
   viewSection.appendChild(createCodeBlockReapplyButton());
   viewSection.appendChild(createHeadingViewSection());
   return viewSection;
+}
+
+function createChatOverlayControl() {
+  const settings =
+    typeof cgptGetViewSettings === "function"
+      ? cgptGetViewSettings()
+      : { chatOverlayEnabled: false };
+
+  const row = document.createElement("label");
+  row.style.display = "flex";
+  row.style.alignItems = "center";
+  row.style.gap = "6px";
+  row.style.minHeight = "28px";
+  row.style.cursor = "pointer";
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = settings.chatOverlayEnabled === true;
+  checkbox.style.margin = "0";
+  checkbox.addEventListener("change", () => {
+    const nextValue = checkbox.checked === true;
+    if (typeof cgptUpdateViewSettings === "function") {
+      cgptUpdateViewSettings({ chatOverlayEnabled: nextValue }, (updatedSettings) => {
+        checkbox.checked = updatedSettings.chatOverlayEnabled === true;
+        requestChatOverlayRefresh();
+      });
+      return;
+    }
+    requestChatOverlayRefresh();
+  });
+  row.appendChild(checkbox);
+
+  const text = document.createElement("span");
+  text.textContent = "Chat overlay helpers";
+  text.style.fontSize = "11px";
+  text.style.lineHeight = "1.3";
+  if (typeof cgptApplyPanelTextTone === "function") {
+    cgptApplyPanelTextTone(text, "muted");
+  }
+  row.appendChild(text);
+
+  return row;
 }
 
 function createChatWindowAlignmentControl() {
@@ -244,6 +287,14 @@ function requestCodeSaverReapply() {
   }
 }
 
+function requestChatOverlayRefresh() {
+  if (typeof cgptRefreshChatOverlayHelpers === "function") {
+    cgptRefreshChatOverlayHelpers(document);
+    return;
+  }
+  requestCodeSaverReapply();
+}
+
 function requestHeadingFoldReapply() {
   if (
     typeof applyHeadingFold !== "function" ||
@@ -253,7 +304,9 @@ function requestHeadingFoldReapply() {
   ) {
     return;
   }
-  document.querySelectorAll(".cgpt-helper-message-body").forEach((body) => {
+  document
+    .querySelectorAll("[data-message-author-role='assistant']")
+    .forEach((body) => {
     if (cgptShouldApplyHeadingFold(body)) {
       applyHeadingFold(body, 1);
     }
@@ -304,8 +357,10 @@ function requestAllHeadingFoldChanges(shouldExpand) {
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
+    createChatOverlayControl,
     createChatWindowAlignmentControl,
     createChatBubbleWidthControl,
+    requestChatOverlayRefresh,
     requestCodeSaverReapply,
     requestHeadingFoldReapply,
   };

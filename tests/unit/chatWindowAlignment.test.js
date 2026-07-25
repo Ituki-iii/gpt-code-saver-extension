@@ -66,11 +66,15 @@ function createDocumentStub() {
 test("cgptApplyChatWindowAlignment toggles the left align class", () => {
   const {
     CGPT_CHAT_BUBBLE_WIDTH_VAR,
+    CGPT_CHAT_LEFT_ALIGN_GUTTER_VAR,
     CGPT_CHAT_LEFT_ALIGN_CLASS,
     CGPT_CHAT_LEFT_ALIGN_STYLE_ID,
+    CGPT_DEFAULT_CHAT_LEFT_ALIGN_GUTTER_PX,
     cgptApplyChatWindowAlignment,
+    cgptBuildChatWindowAlignmentCss,
   } = loadModule();
   const documentStub = createDocumentStub();
+  const css = cgptBuildChatWindowAlignmentCss();
 
   assert.equal(
     cgptApplyChatWindowAlignment(
@@ -82,6 +86,14 @@ test("cgptApplyChatWindowAlignment toggles the left align class", () => {
   assert.equal(documentStub.body.classList.contains(CGPT_CHAT_LEFT_ALIGN_CLASS), true);
   assert.equal(documentStub.head.appended.length, 1);
   assert.equal(documentStub.head.appended[0].id, CGPT_CHAT_LEFT_ALIGN_STYLE_ID);
+  assert.match(
+    css,
+    new RegExp(
+      `${CGPT_CHAT_LEFT_ALIGN_GUTTER_VAR}:\\s*${CGPT_DEFAULT_CHAT_LEFT_ALIGN_GUTTER_PX}px`
+    )
+  );
+  assert.match(css, new RegExp(`--thread-content-margin:\\s*var\\(${CGPT_CHAT_LEFT_ALIGN_GUTTER_VAR}\\)`));
+  assert.match(css, new RegExp(`margin-left:\\s*var\\(${CGPT_CHAT_LEFT_ALIGN_GUTTER_VAR}\\)`));
   assert.equal(
     documentStub.documentElement.style.getPropertyValue(CGPT_CHAT_BUBBLE_WIDTH_VAR),
     "1120px"
